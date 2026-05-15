@@ -1,3 +1,27 @@
 <resources>
-    <string name="app_name">SmartAudioBook</string>
+    <string name="app_name">Smart AudioBook</string>
+
+    <string name="loading">Loading ...</string>
+
+    <string name="onboarding_title">Latest Audiobooks</string>
+    <string name="onboarding_subtitle">Discover a world of great stories and listen like a real audiobook.</string>
+    <string name="get_started">Get Started</string>
+    <string name="already_login">Already have an account? Login</string>
+
+    <string name="login">Login</string>
+    <string name="login_subtitle">Continue your book journey</string>
+    <string name="create_account">Create Account</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="remember_me">Remember me</string>
+    <string name="forgot_password">Forgot Password?</string>
+    <string name="continue_google">Continue with Google</string>
+    <string name="no_account">Don’t have an account? Register</string>
+
+    <string name="full_name">Full Name</string>
+    <string name="confirm_password">Confirm Password</string>
+    <string name="terms">I agree to the terms and conditions</string>
+    <string name="register">Register</string>
+    <string name="register_google">Register with Google</string>
+    <string name="already_account">Already have an account? Login</string>
 </resources>
