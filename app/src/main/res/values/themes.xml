@@ -1,8 +1,11 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.SmartAudioBook" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/bg_screen</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">#F7F8FF</item>
         <item name="android:colorAccent">#4C63FF</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
     </style>
 </resources>

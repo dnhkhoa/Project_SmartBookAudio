@@ -4,6 +4,9 @@
     <color name="text_gray">#8A8FA3</color>
     <color name="primary_blue">#4C63FF</color>
     <color name="primary_cyan">#00C6C8</color>
-    <color name="white">#FFFFFF</color>
-    <color name="border_light">#E6E8F0</color>
+    <color name="soft_blue">#EEF2FF</color>
+    <color name="card_white">#FFFFFF</color>
+    <color name="accent_teal">#0CC3AD</color>
+    <color name="accent_orange">#F5A623</color>
+    <color name="accent_purple">#8C4FEA</color>
 </resources>
