@@ -105,6 +105,23 @@
     <string name="library_create_title">+ Create Audio Book</string>
     <string name="library_create_subtitle">Enter text or select a file to start</string>
 
+    <string name="profile_title">Profile</string>
+    <string name="profile_name">Nguyen Van Khoa</string>
+    <string name="profile_email">khoa@example.com</string>
+    <string name="profile_books_count">12</string>
+    <string name="profile_books_label">Book(s) created</string>
+    <string name="profile_hours_count">24h</string>
+    <string name="profile_hours_label">hrs listened</string>
+    <string name="profile_plan_count">Free</string>
+    <string name="profile_plan_label">Current plan</string>
+    <string name="profile_account_title">Tai khoan</string>
+    <string name="profile_default_voice">Default voice settings</string>
+    <string name="profile_app_language">App language</string>
+    <string name="profile_data_storage">Data &amp; storage</string>
+    <string name="profile_help_support">Help &amp; Support</string>
+    <string name="profile_sign_out">Sign out</string>
+    <string name="profile_chevron">&gt;</string>
+
     <string name="explore_title">EXPLORE</string>
     <string name="explore_search_hint">Find topics and content...</string>
     <string name="content_type">Content Type</string>

@@ -65,6 +65,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_home);
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
         findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
+        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
         findViewById(R.id.cardContinueListening).setOnClickListener(v -> showFullPlayer());
         findViewById(R.id.cardGeneratedAudioOne).setOnClickListener(v -> showSearch());
         findViewById(R.id.cardGeneratedAudioTwo).setOnClickListener(v -> showEbookDetail());
@@ -76,6 +77,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_explore);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
+        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
         findViewById(R.id.btnOpenSearch).setOnClickListener(v -> showSearch());
     }
 
@@ -85,6 +87,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
         findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
+        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
         findViewById(R.id.itemAndroidServiceTts).setOnClickListener(v -> showDetail());
         findViewById(R.id.itemServiceAndroid).setOnClickListener(v -> showEbookDetail());
     }
@@ -94,7 +97,17 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_library);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
         findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> showFullPlayer());
+    }
+
+    private void showProfile() {
+        prepareProfileWindow();
+        setContentView(R.layout.activity_profile);
+        findViewById(R.id.navHome).setOnClickListener(v -> showHome());
+        findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
+        findViewById(R.id.btnSignOut).setOnClickListener(v -> showLogin());
     }
 
     private void showDetail() {
@@ -134,5 +147,12 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setNavigationBarColor(Color.parseColor("#2E2B72"));
         getWindow().getDecorView().setSystemUiVisibility(0);
         getWindow().setBackgroundDrawableResource(R.drawable.bg_full_player);
+    }
+
+    private void prepareProfileWindow() {
+        getWindow().setStatusBarColor(Color.parseColor("#5C63FF"));
+        getWindow().setNavigationBarColor(Color.parseColor("#F7F8FF"));
+        getWindow().getDecorView().setSystemUiVisibility(0);
+        getWindow().setBackgroundDrawableResource(R.drawable.bg_screen);
     }
 }
