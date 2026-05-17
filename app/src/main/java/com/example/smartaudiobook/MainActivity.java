@@ -15,7 +15,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        prepareLightWindow();
         showHome();
 
     }
@@ -27,16 +26,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showSplash() {
+        prepareLightWindow();
         setContentView(R.layout.activity_splash);
     }
 
     private void showOnboarding() {
+        prepareLightWindow();
         setContentView(R.layout.activity_onboarding);
         findViewById(R.id.btnGetStarted).setOnClickListener(v -> showLogin());
         findViewById(R.id.txtGoLogin).setOnClickListener(v -> showLogin());
     }
 
     private void showLogin() {
+        prepareLightWindow();
         setContentView(R.layout.activity_login);
         findViewById(R.id.txtForgot).setOnClickListener(v -> showForgotPassword());
         findViewById(R.id.txtGoRegister).setOnClickListener(v -> showRegister());
@@ -44,12 +46,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showRegister() {
+        prepareLightWindow();
         setContentView(R.layout.activity_register);
         findViewById(R.id.txtGoLogin).setOnClickListener(v -> showLogin());
         findViewById(R.id.btnRegister).setOnClickListener(v -> showHome());
     }
 
     private void showForgotPassword() {
+        prepareLightWindow();
         setContentView(R.layout.activity_forgot_password);
         findViewById(R.id.btnBack).setOnClickListener(v -> showLogin());
         findViewById(R.id.txtBackLogin).setOnClickListener(v -> showLogin());
@@ -57,21 +61,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showHome() {
+        prepareLightWindow();
         setContentView(R.layout.activity_home);
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
-        findViewById(R.id.cardContinueListening).setOnClickListener(v -> showDetail());
+        findViewById(R.id.cardContinueListening).setOnClickListener(v -> showFullPlayer());
         findViewById(R.id.cardGeneratedAudioOne).setOnClickListener(v -> showSearch());
         findViewById(R.id.cardGeneratedAudioTwo).setOnClickListener(v -> showEbookDetail());
-        findViewById(R.id.miniPlayerDock).setOnClickListener(v -> showDetail());
+        findViewById(R.id.miniPlayerDock).setOnClickListener(v -> showFullPlayer());
     }
 
     private void showExplore() {
+        prepareLightWindow();
         setContentView(R.layout.activity_explore);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.btnOpenSearch).setOnClickListener(v -> showSearch());
     }
 
     private void showSearch() {
+        prepareLightWindow();
         setContentView(R.layout.activity_search);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
@@ -80,13 +87,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showDetail() {
+        prepareLightWindow();
         setContentView(R.layout.activity_detail);
         findViewById(R.id.btnBackDetail).setOnClickListener(v -> showSearch());
     }
 
     private void showEbookDetail() {
+        prepareLightWindow();
         setContentView(R.layout.activity_ebook_detail);
         findViewById(R.id.btnBackEbookDetail).setOnClickListener(v -> showSearch());
+    }
+
+    private void showFullPlayer() {
+        preparePlayerWindow();
+        setContentView(R.layout.activity_full_player);
+        findViewById(R.id.btnBackFullPlayer).setOnClickListener(v -> showHome());
     }
 
     private void prepareLightWindow() {
@@ -94,5 +109,12 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setNavigationBarColor(Color.parseColor("#F7F8FF"));
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         getWindow().setBackgroundDrawableResource(R.color.bg_screen);
+    }
+
+    private void preparePlayerWindow() {
+        getWindow().setStatusBarColor(Color.parseColor("#171A3A"));
+        getWindow().setNavigationBarColor(Color.parseColor("#2E2B72"));
+        getWindow().getDecorView().setSystemUiVisibility(0);
+        getWindow().setBackgroundDrawableResource(R.drawable.bg_full_player);
     }
 }

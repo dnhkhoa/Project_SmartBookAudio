@@ -64,6 +64,17 @@
     <string name="mini_player_label">Mini Player</string>
     <string name="mini_player_description">Shows the currently playing audio.</string>
     <string name="mini_player_hint">Tap to open the full player.</string>
+    <string name="full_player_title">Listening</string>
+    <string name="full_player_chapter">Chuong 2: Background Audio</string>
+    <string name="full_player_elapsed">01:25</string>
+    <string name="full_player_duration">18:30</string>
+    <string name="full_player_rewind">-15</string>
+    <string name="full_player_forward">+15</string>
+    <string name="full_player_pause">Pause</string>
+    <string name="full_player_pause_icon">II</string>
+    <string name="full_player_speed">1.0x</string>
+    <string name="full_player_timer">Timer</string>
+    <string name="full_player_chapter_button">Chapter</string>
 
     <string name="explore_title">EXPLORE</string>
     <string name="explore_search_hint">Find topics and content...</string>

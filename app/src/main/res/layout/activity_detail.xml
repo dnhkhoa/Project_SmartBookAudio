@@ -22,8 +22,7 @@
             android:layout_marginStart="18dp"
             android:layout_marginTop="44dp"
             android:contentDescription="@string/desc_back"
-            android:src="@drawable/ic_arrow_back"
-            android:tint="@android:color/white" />
+            android:src="@drawable/ic_arrow_back_white" />
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="96dp"
