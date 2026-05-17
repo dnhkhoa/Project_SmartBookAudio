@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_full_player"
+    android:paddingStart="32dp"
+    android:paddingEnd="32dp">
+
+    <ImageView
+        android:id="@+id/btnBackFullPlayer"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginTop="54dp"
+        android:contentDescription="@string/desc_back"
+        android:padding="2dp"
+        android:src="@drawable/ic_arrow_back_white"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/fullPlayerHeader"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/full_player_title"
+        android:textColor="@android:color/white"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@id/btnBackFullPlayer"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@id/btnBackFullPlayer" />
+
+    <FrameLayout
+        android:id="@+id/fullPlayerCover"
+        android:layout_width="240dp"
+        android:layout_height="260dp"
+        android:layout_marginTop="32dp"
+        android:background="@drawable/bg_full_player_cover"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/fullPlayerHeader">
+
+        <TextView
+            android:layout_width="124dp"
+            android:layout_height="124dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_full_player_cover_badge"
+            android:gravity="center"
+            android:text="@string/avatar_initial"
+            android:textColor="@android:color/white"
+            android:textSize="48sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/fullPlayerBookTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:gravity="center"
+        android:text="@string/android_service_tts"
+        android:textColor="@android:color/white"
+        android:textSize="25sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/fullPlayerCover" />
+
+    <TextView
+        android:id="@+id/fullPlayerChapter"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center"
+        android:text="@string/full_player_chapter"
+        android:textColor="#D7D8F8"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/fullPlayerBookTitle" />
+
+    <TextView
+        android:id="@+id/fullPlayerElapsed"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:text="@string/full_player_elapsed"
+        android:textColor="#F8FAFF"
+        android:textSize="12sp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/fullPlayerChapter" />
+
+    <TextView
+        android:id="@+id/fullPlayerDuration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/full_player_duration"
+        android:textColor="#F8FAFF"
+        android:textSize="12sp"
+        app:layout_constraintBaseline_toBaselineOf="@id/fullPlayerElapsed"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <FrameLayout
+        android:id="@+id/fullPlayerProgress"
+        android:layout_width="0dp"
+        android:layout_height="20dp"
+        android:layout_marginTop="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/fullPlayerElapsed">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_gravity="center_vertical"
+            android:background="@drawable/bg_full_player_progress_track" />
+
+        <View
+            android:layout_width="118dp"
+            android:layout_height="6dp"
+            android:layout_gravity="center_vertical|start"
+            android:background="@drawable/bg_full_player_progress_fill" />
+
+        <View
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="center_vertical|start"
+            android:layout_marginStart="108dp"
+            android:background="@drawable/bg_full_player_progress_thumb" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/fullPlayerControls"
+        android:layout_width="0dp"
+        android:layout_height="72dp"
+        android:layout_marginBottom="22dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toTopOf="@id/fullPlayerOptions"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_full_player_control"
+            android:gravity="center"
+            android:text="@string/full_player_rewind"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginStart="22dp"
+            android:layout_marginEnd="22dp"
+            android:background="@drawable/bg_full_player_pause"
+            android:contentDescription="@string/full_player_pause"
+            android:gravity="center"
+            android:text="@string/full_player_pause_icon"
+            android:textColor="@color/primary_blue"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_full_player_control"
+            android:gravity="center"
+            android:text="@string/full_player_forward"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/fullPlayerOptions"
+        android:layout_width="0dp"
+        android:layout_height="34dp"
+        android:layout_marginBottom="40dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_full_player_pill"
+            android:gravity="center"
+            android:text="@string/full_player_speed"
+            android:textColor="@color/primary_blue"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="36dp"
+            android:layout_height="1dp" />
+
+        <TextView
+            android:id="@+id/btnOpenBackgroundPopup"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1.18"
+            android:background="@drawable/bg_full_player_pill"
+            android:gravity="center"
+            android:text="@string/full_player_timer"
+            android:textColor="@color/primary_blue"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="36dp"
+            android:layout_height="1dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_full_player_pill"
+            android:gravity="center"
+            android:text="@string/full_player_chapter_button"
+            android:textColor="@color/primary_blue"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

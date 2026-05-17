@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/navProfile"
+    android:layout_width="0dp"
+    android:layout_height="match_parent"
+    android:layout_weight="1"
+    android:gravity="center"
+    android:orientation="vertical"
+    tools:background="#F1F4FF"
+    tools:layout_height="64dp"
+    tools:layout_width="90dp"
+    tools:showIn="@layout/activity_profile">
+
+    <FrameLayout
+        android:layout_width="58dp"
+        android:layout_height="34dp"
+        android:background="@drawable/bg_nav_active">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            android:contentDescription="@string/nav_profile"
+            android:src="@drawable/ic_profile_blue" />
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:text="@string/nav_profile"
+        android:textColor="@color/primary_blue"
+        android:textSize="10sp"
+        android:textStyle="bold" />
+</LinearLayout>
