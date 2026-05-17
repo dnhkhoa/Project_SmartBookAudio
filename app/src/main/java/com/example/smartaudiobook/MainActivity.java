@@ -16,7 +16,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prepareLightWindow();
-        showLogin();
+        showHome();
 
     }
 
@@ -59,6 +59,10 @@ public class MainActivity extends AppCompatActivity {
     private void showHome() {
         setContentView(R.layout.activity_home);
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.cardContinueListening).setOnClickListener(v -> showDetail());
+        findViewById(R.id.cardGeneratedAudioOne).setOnClickListener(v -> showSearch());
+        findViewById(R.id.cardGeneratedAudioTwo).setOnClickListener(v -> showEbookDetail());
+        findViewById(R.id.miniPlayerDock).setOnClickListener(v -> showDetail());
     }
 
     private void showExplore() {
@@ -71,6 +75,18 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_search);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.itemAndroidServiceTts).setOnClickListener(v -> showDetail());
+        findViewById(R.id.itemServiceAndroid).setOnClickListener(v -> showEbookDetail());
+    }
+
+    private void showDetail() {
+        setContentView(R.layout.activity_detail);
+        findViewById(R.id.btnBackDetail).setOnClickListener(v -> showSearch());
+    }
+
+    private void showEbookDetail() {
+        setContentView(R.layout.activity_ebook_detail);
+        findViewById(R.id.btnBackEbookDetail).setOnClickListener(v -> showSearch());
     }
 
     private void prepareLightWindow() {
