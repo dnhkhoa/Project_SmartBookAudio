@@ -64,6 +64,7 @@ public class MainActivity extends AppCompatActivity {
         prepareLightWindow();
         setContentView(R.layout.activity_home);
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
         findViewById(R.id.cardContinueListening).setOnClickListener(v -> showFullPlayer());
         findViewById(R.id.cardGeneratedAudioOne).setOnClickListener(v -> showSearch());
         findViewById(R.id.cardGeneratedAudioTwo).setOnClickListener(v -> showEbookDetail());
@@ -74,6 +75,7 @@ public class MainActivity extends AppCompatActivity {
         prepareLightWindow();
         setContentView(R.layout.activity_explore);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
+        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
         findViewById(R.id.btnOpenSearch).setOnClickListener(v -> showSearch());
     }
 
@@ -82,8 +84,17 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_search);
         findViewById(R.id.navHome).setOnClickListener(v -> showHome());
         findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
         findViewById(R.id.itemAndroidServiceTts).setOnClickListener(v -> showDetail());
         findViewById(R.id.itemServiceAndroid).setOnClickListener(v -> showEbookDetail());
+    }
+
+    private void showLibrary() {
+        prepareLightWindow();
+        setContentView(R.layout.activity_library);
+        findViewById(R.id.navHome).setOnClickListener(v -> showHome());
+        findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
+        findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> showFullPlayer());
     }
 
     private void showDetail() {

@@ -87,6 +87,24 @@
     <string name="background_popup_card_body">This mockup demonstrates the requirement: audio continues playing when the screen is off.</string>
     <string name="background_popup_return">Return to player</string>
 
+    <string name="library_title">Library</string>
+    <string name="library_subtitle">Manage created books</string>
+    <string name="library_add">+</string>
+    <string name="library_filter_all">All</string>
+    <string name="library_filter_listening">Listening</string>
+    <string name="library_filter_downloaded">Downloaded</string>
+    <string name="library_filter_completed">Completed</string>
+    <string name="library_android_meta">12 chapters - 2 h 35 m - 45%</string>
+    <string name="library_clean_code_meta">8 chapters - 1 h 40 m</string>
+    <string name="library_ai_lecture">AI Lecture Summary</string>
+    <string name="library_ai_meta">5 chapters - processing 65%</string>
+    <string name="library_ai_progress">65%</string>
+    <string name="library_english_vocab">English Vocabulary</string>
+    <string name="library_english_meta">18 chapters - available offline</string>
+    <string name="library_offline">Offline</string>
+    <string name="library_create_title">+ Create Audio Book</string>
+    <string name="library_create_subtitle">Enter text or select a file to start</string>
+
     <string name="explore_title">EXPLORE</string>
     <string name="explore_search_hint">Find topics and content...</string>
     <string name="content_type">Content Type</string>
