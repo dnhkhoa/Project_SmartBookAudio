@@ -35,8 +35,8 @@
     <FrameLayout
         android:id="@+id/fullPlayerCover"
         android:layout_width="240dp"
-        android:layout_height="300dp"
-        android:layout_marginTop="40dp"
+        android:layout_height="260dp"
+        android:layout_marginTop="32dp"
         android:background="@drawable/bg_full_player_cover"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -58,7 +58,7 @@
         android:id="@+id/fullPlayerBookTitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="36dp"
+        android:layout_marginTop="28dp"
         android:gravity="center"
         android:text="@string/android_service_tts"
         android:textColor="@android:color/white"
@@ -72,7 +72,7 @@
         android:id="@+id/fullPlayerChapter"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="6dp"
         android:gravity="center"
         android:text="@string/full_player_chapter"
         android:textColor="#D7D8F8"
@@ -86,7 +86,7 @@
         android:id="@+id/fullPlayerElapsed"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="42dp"
+        android:layout_marginTop="28dp"
         android:text="@string/full_player_elapsed"
         android:textColor="#F8FAFF"
         android:textSize="12sp"
@@ -135,13 +135,13 @@
     <LinearLayout
         android:id="@+id/fullPlayerControls"
         android:layout_width="0dp"
-        android:layout_height="80dp"
-        android:layout_marginTop="26dp"
+        android:layout_height="72dp"
+        android:layout_marginBottom="22dp"
         android:gravity="center"
         android:orientation="horizontal"
+        app:layout_constraintBottom_toTopOf="@id/fullPlayerOptions"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/fullPlayerProgress">
+        app:layout_constraintStart_toStartOf="parent">
 
         <TextView
             android:layout_width="56dp"
@@ -154,8 +154,8 @@
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="80dp"
-            android:layout_height="80dp"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
             android:layout_marginStart="22dp"
             android:layout_marginEnd="22dp"
             android:background="@drawable/bg_full_player_pause"
@@ -181,12 +181,12 @@
         android:id="@+id/fullPlayerOptions"
         android:layout_width="0dp"
         android:layout_height="34dp"
-        android:layout_marginTop="34dp"
+        android:layout_marginBottom="40dp"
         android:gravity="center"
         android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/fullPlayerControls">
+        app:layout_constraintStart_toStartOf="parent">
 
         <TextView
             android:layout_width="0dp"
@@ -204,6 +204,7 @@
             android:layout_height="1dp" />
 
         <TextView
+            android:id="@+id/btnOpenBackgroundPopup"
             android:layout_width="0dp"
             android:layout_height="34dp"
             android:layout_weight="1.18"

@@ -102,6 +102,13 @@ public class MainActivity extends AppCompatActivity {
         preparePlayerWindow();
         setContentView(R.layout.activity_full_player);
         findViewById(R.id.btnBackFullPlayer).setOnClickListener(v -> showHome());
+        findViewById(R.id.btnOpenBackgroundPopup).setOnClickListener(v -> showBackgroundPopup());
+    }
+
+    private void showBackgroundPopup() {
+        preparePlayerWindow();
+        setContentView(R.layout.activity_background_popup);
+        findViewById(R.id.btnReturnToPlayer).setOnClickListener(v -> showFullPlayer());
     }
 
     private void prepareLightWindow() {
