@@ -5,13 +5,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_screen"
-    android:paddingStart="24dp"
-    android:paddingEnd="24dp">
+    android:paddingStart="18dp"
+    android:paddingEnd="18dp">
 
     <ScrollView
         android:id="@+id/contentScroll"
         android:layout_width="0dp"
         android:layout_height="0dp"
+        android:clipToPadding="false"
         app:layout_constraintBottom_toTopOf="@id/bottomNav"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -21,72 +22,142 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingTop="54dp"
+            android:paddingTop="48dp"
             android:paddingBottom="24dp">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/search_title"
+                android:text="@string/search_results_title"
                 android:textColor="@color/text_dark"
-                android:textSize="24sp"
+                android:textSize="20sp"
                 android:textStyle="bold" />
 
-            <EditText
+            <androidx.constraintlayout.widget.ConstraintLayout
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="28dp"
-                android:autofillHints="none"
+                android:layout_height="56dp"
+                android:layout_marginTop="18dp"
                 android:background="@drawable/bg_search_round"
-                android:hint="@string/search_input_hint"
-                android:inputType="text"
                 android:paddingStart="18dp"
-                android:paddingEnd="18dp"
-                android:singleLine="true"
-                android:textSize="13sp" />
+                android:paddingEnd="14dp">
+
+                <TextView
+                    android:id="@+id/searchQuery"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="@string/keyword_android_service"
+                    android:textColor="@color/text_dark"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toStartOf="@id/searchIcon"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <ImageView
+                    android:id="@+id/searchIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@string/search_title"
+                    android:src="@drawable/ic_search_small"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:background="@drawable/bg_chip_selected"
+                        android:gravity="center"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/filter_all"
+                        android:textColor="@android:color/white"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_chip_soft"
+                        android:gravity="center"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/audio_book"
+                        android:textColor="@color/primary_blue"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_chip_soft"
+                        android:gravity="center"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/ebook"
+                        android:textColor="@color/primary_blue"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_chip_soft"
+                        android:gravity="center"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/chapters"
+                        android:textColor="@color/primary_blue"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </HorizontalScrollView>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="28dp"
-                android:text="@string/recently_search"
+                android:layout_marginTop="18dp"
+                android:text="@string/search_match_count"
                 android:textColor="@color/text_dark"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <include layout="@layout/recent_search_android" />
-            <include layout="@layout/recent_search_tts" />
-            <include layout="@layout/recent_search_ml" />
-            <include layout="@layout/recent_search_study" />
+            <include layout="@layout/search_result_android_tts" />
+            <include layout="@layout/search_result_background_audio" />
+            <include layout="@layout/search_result_service_android" />
+            <include layout="@layout/search_result_media_session" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:text="@string/keywords"
-                android:textColor="@color/text_dark"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="18dp"
+                android:text="@string/showing_results"
+                android:textColor="@color/text_gray"
+                android:textSize="12sp" />
 
-            <LinearLayout
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="vertical">
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/tts" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:layout_marginStart="8dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/android_keyword" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:layout_marginStart="8dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/service_keyword" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                </LinearLayout>
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/audio_book" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:layout_marginStart="8dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/ai" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:layout_marginStart="8dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/software" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                </LinearLayout>
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
-                    <TextView android:layout_width="wrap_content" android:layout_height="32dp" android:background="@drawable/bg_chip_soft" android:gravity="center" android:text="@string/ebook" android:textColor="@color/primary_blue" android:textSize="11sp" android:textStyle="bold" />
-                </LinearLayout>
-            </LinearLayout>
+                android:layout_marginTop="6dp"
+                android:text="@string/show_more"
+                android:textColor="@color/text_gray"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 
