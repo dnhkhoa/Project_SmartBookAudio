@@ -191,6 +191,7 @@
                 android:textStyle="bold" />
 
             <LinearLayout
+                android:id="@+id/menuDefaultVoice"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginStart="26dp"
@@ -222,6 +223,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/menuAppLanguage"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginStart="26dp"
@@ -253,6 +255,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/menuDataStorage"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginStart="26dp"
@@ -284,6 +287,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/menuHelpSupport"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginStart="26dp"
