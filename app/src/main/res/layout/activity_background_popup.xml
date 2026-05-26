@@ -155,6 +155,7 @@
                 app:layout_constraintTop_toBottomOf="@id/backgroundAudioCover">
 
                 <TextView
+                    android:id="@+id/btnBackgroundPrevious"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:gravity="center"
@@ -164,6 +165,7 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/btnBackgroundPlayPause"
                     android:layout_width="40dp"
                     android:layout_height="24dp"
                     android:gravity="center"
@@ -173,6 +175,7 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/btnBackgroundNext"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:gravity="center"
