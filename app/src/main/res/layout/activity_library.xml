@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -285,7 +285,7 @@
             </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/libraryItemAi"
+                android:id="@+id/libraryItemAiLecture"
                 android:layout_width="match_parent"
                 android:layout_height="84dp"
                 android:layout_marginTop="16dp"
@@ -459,3 +459,4 @@
         <include layout="@layout/nav_profile" />
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>
+

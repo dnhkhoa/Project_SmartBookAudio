@@ -119,12 +119,14 @@
             android:background="@drawable/bg_full_player_progress_track" />
 
         <View
+            android:id="@+id/fullPlayerProgressFill"
             android:layout_width="118dp"
             android:layout_height="6dp"
             android:layout_gravity="center_vertical|start"
             android:background="@drawable/bg_full_player_progress_fill" />
 
         <View
+            android:id="@+id/fullPlayerProgressThumb"
             android:layout_width="18dp"
             android:layout_height="18dp"
             android:layout_gravity="center_vertical|start"
@@ -144,6 +146,7 @@
         app:layout_constraintStart_toStartOf="parent">
 
         <TextView
+            android:id="@+id/btnFullPlayerRewind"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:background="@drawable/bg_full_player_control"
@@ -154,6 +157,7 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/btnFullPlayerPlayPause"
             android:layout_width="72dp"
             android:layout_height="72dp"
             android:layout_marginStart="22dp"
@@ -167,6 +171,7 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/btnFullPlayerForward"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:background="@drawable/bg_full_player_control"
@@ -189,6 +194,7 @@
         app:layout_constraintStart_toStartOf="parent">
 
         <TextView
+            android:id="@+id/btnFullPlayerSpeed"
             android:layout_width="0dp"
             android:layout_height="34dp"
             android:layout_weight="1"
@@ -220,6 +226,7 @@
             android:layout_height="1dp" />
 
         <TextView
+            android:id="@+id/btnFullPlayerChapter"
             android:layout_width="0dp"
             android:layout_height="34dp"
             android:layout_weight="1"
