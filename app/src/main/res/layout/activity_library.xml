@@ -17,6 +17,7 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <LinearLayout
+            android:id="@+id/libraryContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -284,6 +285,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/libraryItemAi"
                 android:layout_width="match_parent"
                 android:layout_height="84dp"
                 android:layout_marginTop="16dp"
@@ -338,6 +340,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/libraryItemEnglish"
                 android:layout_width="match_parent"
                 android:layout_height="84dp"
                 android:layout_marginTop="16dp"
@@ -405,6 +408,7 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/libraryCreateCard"
                 android:layout_width="match_parent"
                 android:layout_height="78dp"
                 android:layout_marginTop="42dp"
