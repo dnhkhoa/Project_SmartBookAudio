@@ -16,8 +16,10 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayDeque;
 import java.util.Locale;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -26,6 +28,11 @@ import java.util.regex.Pattern;
 public class MainActivity extends AppCompatActivity {
 
     private enum Screen {
+        SPLASH,
+        ONBOARDING,
+        LOGIN,
+        REGISTER,
+        FORGOT_PASSWORD,
         HOME,
         EXPLORE,
         SEARCH,
@@ -42,12 +49,12 @@ public class MainActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runSearch;
+    private final Navigator navigator = new Navigator();
     private static final long SEARCH_DEBOUNCE_MS = 450L;
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$", Pattern.CASE_INSENSITIVE);
     private EditText searchInput;
     private Screen currentScreen = Screen.HOME;
-    private Screen playerReturnScreen = Screen.HOME;
     private int playerPositionSeconds = 85;
     private int playbackSpeedIndex = 1;
     private int selectedLibraryFilter = 0;
@@ -56,7 +63,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        showHome();
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (!navigator.goBack()) {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                }
+            }
+        });
+        navigator.resetTo(Screen.HOME);
 
     }
 
@@ -66,51 +82,148 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
+    private final class Navigator {
+        private final ArrayDeque<Screen> backStack = new ArrayDeque<>();
+
+        private void resetTo(Screen target) {
+            backStack.clear();
+            routeTo(target);
+        }
+
+        private void navigateTo(Screen target) {
+            if (target == currentScreen) {
+                return;
+            }
+            backStack.push(currentScreen);
+            routeTo(target);
+        }
+
+        private void switchTab(Screen target) {
+            if (target == currentScreen) {
+                return;
+            }
+            backStack.clear();
+            if (target != Screen.HOME) {
+                backStack.push(Screen.HOME);
+            }
+            routeTo(target);
+        }
+
+        private boolean goBack() {
+            if (!backStack.isEmpty()) {
+                routeTo(backStack.pop());
+                return true;
+            }
+            if (isPrimaryTab(currentScreen) && currentScreen != Screen.HOME) {
+                routeTo(Screen.HOME);
+                return true;
+            }
+            return false;
+        }
+
+        private void routeTo(Screen target) {
+            handler.removeCallbacks(searchRunnable);
+            searchInput = null;
+            switch (target) {
+                case SPLASH:
+                    showSplash();
+                    break;
+                case ONBOARDING:
+                    showOnboarding();
+                    break;
+                case LOGIN:
+                    showLogin();
+                    break;
+                case REGISTER:
+                    showRegister();
+                    break;
+                case FORGOT_PASSWORD:
+                    showForgotPassword();
+                    break;
+                case EXPLORE:
+                    showExplore();
+                    break;
+                case SEARCH:
+                    showSearch();
+                    break;
+                case LIBRARY:
+                    showLibrary();
+                    break;
+                case PROFILE:
+                    showProfile();
+                    break;
+                case DETAIL:
+                    showDetail();
+                    break;
+                case EBOOK_DETAIL:
+                    showEbookDetail();
+                    break;
+                case FULL_PLAYER:
+                    showFullPlayer();
+                    break;
+                case BACKGROUND_POPUP:
+                    showBackgroundPopup();
+                    break;
+                case HOME:
+                default:
+                    showHome();
+                    break;
+            }
+        }
+
+        private boolean isPrimaryTab(Screen screen) {
+            return screen == Screen.HOME
+                    || screen == Screen.EXPLORE
+                    || screen == Screen.LIBRARY
+                    || screen == Screen.PROFILE;
+        }
+    }
+
     private void showSplash() {
-        currentScreen = Screen.HOME;
+        currentScreen = Screen.SPLASH;
         prepareLightWindow();
         setContentView(R.layout.activity_splash);
     }
 
     private void showOnboarding() {
-        currentScreen = Screen.HOME;
+        currentScreen = Screen.ONBOARDING;
         prepareLightWindow();
         setContentView(R.layout.activity_onboarding);
-        findViewById(R.id.btnGetStarted).setOnClickListener(v -> showLogin());
-        findViewById(R.id.txtGoLogin).setOnClickListener(v -> showLogin());
+        findViewById(R.id.btnGetStarted).setOnClickListener(v -> navigator.navigateTo(Screen.LOGIN));
+        findViewById(R.id.txtGoLogin).setOnClickListener(v -> navigator.navigateTo(Screen.LOGIN));
     }
 
     private void showLogin() {
-        currentScreen = Screen.HOME;
+        currentScreen = Screen.LOGIN;
         prepareLightWindow();
         setContentView(R.layout.activity_login);
         EditText emailInput = findViewById(R.id.edtEmail);
         EditText passwordInput = findViewById(R.id.edtPassword);
-        findViewById(R.id.txtForgot).setOnClickListener(v -> showForgotPassword());
-        findViewById(R.id.txtGoRegister).setOnClickListener(v -> showRegister());
+        findViewById(R.id.txtForgot).setOnClickListener(v -> navigator.navigateTo(Screen.FORGOT_PASSWORD));
+        findViewById(R.id.txtGoRegister).setOnClickListener(v -> navigator.navigateTo(Screen.REGISTER));
         findViewById(R.id.btnLogin).setOnClickListener(v -> handleLogin(emailInput, passwordInput));
     }
 
     private void showRegister() {
-        currentScreen = Screen.HOME;
+        currentScreen = Screen.REGISTER;
         prepareLightWindow();
         setContentView(R.layout.activity_register);
         EditText fullNameInput = findViewById(R.id.edtFullName);
         EditText emailInput = findViewById(R.id.edtEmail);
         EditText passwordInput = findViewById(R.id.edtPassword);
         EditText confirmPasswordInput = findViewById(R.id.edtConfirmPassword);
-        findViewById(R.id.txtGoLogin).setOnClickListener(v -> showLogin());
+        findViewById(R.id.txtGoLogin).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnRegister).setOnClickListener(v ->
                 handleRegister(fullNameInput, emailInput, passwordInput, confirmPasswordInput));
     }
 
     private void showForgotPassword() {
-        currentScreen = Screen.HOME;
+        currentScreen = Screen.FORGOT_PASSWORD;
         prepareLightWindow();
         setContentView(R.layout.activity_forgot_password);
         EditText emailInput = findViewById(R.id.edtEmail);
-        findViewById(R.id.btnBack).setOnClickListener(v -> showLogin());
-        findViewById(R.id.txtBackLogin).setOnClickListener(v -> showLogin());
+        findViewById(R.id.btnBack).setOnClickListener(v -> navigator.goBack());
+        findViewById(R.id.txtBackLogin).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnSendInstruction).setOnClickListener(v -> handleForgotPassword(emailInput));
     }
 
@@ -118,12 +231,12 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.HOME;
         prepareLightWindow();
         setContentView(R.layout.activity_home);
-        findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
-        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
-        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
+        findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
+        findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
+        findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.cardContinueListening).setOnClickListener(v -> openFullPlayer());
-        findViewById(R.id.cardGeneratedAudioOne).setOnClickListener(v -> showSearch());
-        findViewById(R.id.cardGeneratedAudioTwo).setOnClickListener(v -> showEbookDetail());
+        findViewById(R.id.cardGeneratedAudioOne).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
+        findViewById(R.id.cardGeneratedAudioTwo).setOnClickListener(v -> navigator.navigateTo(Screen.EBOOK_DETAIL));
         findViewById(R.id.miniPlayerDock).setOnClickListener(v -> openFullPlayer());
     }
 
@@ -131,10 +244,10 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.EXPLORE;
         prepareLightWindow();
         setContentView(R.layout.activity_explore);
-        findViewById(R.id.navHome).setOnClickListener(v -> showHome());
-        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
-        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
-        findViewById(R.id.btnOpenSearch).setOnClickListener(v -> showSearch());
+        findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
+        findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
+        findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
+        findViewById(R.id.btnOpenSearch).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
         findViewById(R.id.topicAi).setOnClickListener(v -> openTopic("AI"));
         findViewById(R.id.topicData).setOnClickListener(v -> openTopic("Data"));
         findViewById(R.id.topicSkills).setOnClickListener(v -> openTopic("Skills"));
@@ -146,10 +259,10 @@ public class MainActivity extends AppCompatActivity {
         prepareLightWindow();
         setContentView(R.layout.activity_search);
         searchInput = findViewById(R.id.edtSearchQuery);
-        findViewById(R.id.navHome).setOnClickListener(v -> showHome());
-        findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
-        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
-        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
+        findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
+        findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
+        findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
+        findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.searchIcon).setOnClickListener(v -> runSearch());
         findViewById(R.id.btnClearSearch).setOnClickListener(v -> clearSearch());
         findViewById(R.id.recentSearchAndroid).setOnClickListener(v -> applyRecentSearch("android service"));
@@ -164,21 +277,21 @@ public class MainActivity extends AppCompatActivity {
             }
             return false;
         });
-        findViewById(R.id.itemAndroidServiceTts).setOnClickListener(v -> showDetail());
-        findViewById(R.id.itemServiceAndroid).setOnClickListener(v -> showEbookDetail());
+        findViewById(R.id.itemAndroidServiceTts).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
+        findViewById(R.id.itemServiceAndroid).setOnClickListener(v -> navigator.navigateTo(Screen.EBOOK_DETAIL));
     }
 
     private void showLibrary() {
         currentScreen = Screen.LIBRARY;
         prepareLightWindow();
         setContentView(R.layout.activity_library);
-        findViewById(R.id.navHome).setOnClickListener(v -> showHome());
-        findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
-        findViewById(R.id.navProfile).setOnClickListener(v -> showProfile());
+        findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
+        findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
+        findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.btnLibrarySort).setOnClickListener(v ->
                 Toast.makeText(this, "Sort: Updated recently", Toast.LENGTH_SHORT).show());
-        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> showSearch());
-        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> showSearch());
+        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
+        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
         findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> openFullPlayer());
         findViewById(R.id.libraryItemAndroidPlay).setOnClickListener(v -> openFullPlayer());
         findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> openFullPlayer());
@@ -195,45 +308,45 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.PROFILE;
         prepareProfileWindow();
         setContentView(R.layout.activity_profile);
-        findViewById(R.id.navHome).setOnClickListener(v -> showHome());
-        findViewById(R.id.navExplore).setOnClickListener(v -> showExplore());
-        findViewById(R.id.navLibrary).setOnClickListener(v -> showLibrary());
+        findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
+        findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
+        findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
         findViewById(R.id.menuDefaultVoice).setOnClickListener(v -> showProfileAction(getString(R.string.profile_default_voice)));
         findViewById(R.id.menuAppLanguage).setOnClickListener(v -> showProfileAction(getString(R.string.profile_app_language)));
         findViewById(R.id.menuDataStorage).setOnClickListener(v -> showProfileAction(getString(R.string.profile_data_storage)));
         findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
-        findViewById(R.id.btnSignOut).setOnClickListener(v -> showLogin());
+        findViewById(R.id.btnSignOut).setOnClickListener(v -> navigator.resetTo(Screen.LOGIN));
     }
 
     private void showDetail() {
         currentScreen = Screen.DETAIL;
         prepareLightWindow();
         setContentView(R.layout.activity_detail);
-        findViewById(R.id.btnBackDetail).setOnClickListener(v -> showSearch());
+        findViewById(R.id.btnBackDetail).setOnClickListener(v -> navigator.goBack());
+        findViewById(R.id.detailPlayButton).setOnClickListener(v -> openFullPlayer());
     }
 
     private void showEbookDetail() {
         currentScreen = Screen.EBOOK_DETAIL;
         prepareLightWindow();
         setContentView(R.layout.activity_ebook_detail);
-        findViewById(R.id.btnBackEbookDetail).setOnClickListener(v -> showSearch());
+        findViewById(R.id.btnBackEbookDetail).setOnClickListener(v -> navigator.goBack());
     }
 
     private void openFullPlayer() {
-        playerReturnScreen = getPlayerReturnScreen();
-        showFullPlayer();
+        navigator.navigateTo(Screen.FULL_PLAYER);
     }
 
     private void showFullPlayer() {
         currentScreen = Screen.FULL_PLAYER;
         preparePlayerWindow();
         setContentView(R.layout.activity_full_player);
-        findViewById(R.id.btnBackFullPlayer).setOnClickListener(v -> showPlayerReturnScreen());
+        findViewById(R.id.btnBackFullPlayer).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnFullPlayerRewind).setOnClickListener(v -> seekPlayerBy(-15));
         findViewById(R.id.btnFullPlayerPlayPause).setOnClickListener(v -> togglePlayback());
         findViewById(R.id.btnFullPlayerForward).setOnClickListener(v -> seekPlayerBy(15));
         findViewById(R.id.btnFullPlayerSpeed).setOnClickListener(v -> cyclePlaybackSpeed());
-        findViewById(R.id.btnOpenBackgroundPopup).setOnClickListener(v -> showBackgroundPopup());
+        findViewById(R.id.btnOpenBackgroundPopup).setOnClickListener(v -> navigator.navigateTo(Screen.BACKGROUND_POPUP));
         findViewById(R.id.btnFullPlayerChapter).setOnClickListener(v -> showToast("Chapter list selected"));
         findViewById(R.id.fullPlayerProgress).setOnTouchListener((view, event) -> handleProgressTouch(view, event));
         updateFullPlayerUi();
@@ -243,48 +356,12 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.BACKGROUND_POPUP;
         preparePlayerWindow();
         setContentView(R.layout.activity_background_popup);
-        findViewById(R.id.btnReturnToPlayer).setOnClickListener(v -> showFullPlayer());
-        findViewById(R.id.backgroundNotification).setOnClickListener(v -> showFullPlayer());
+        findViewById(R.id.btnReturnToPlayer).setOnClickListener(v -> navigator.goBack());
+        findViewById(R.id.backgroundNotification).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnBackgroundPrevious).setOnClickListener(v -> seekPlayerBy(-15));
         findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> togglePlayback());
         findViewById(R.id.btnBackgroundNext).setOnClickListener(v -> seekPlayerBy(15));
         updateBackgroundPopupUi();
-    }
-
-    private Screen getPlayerReturnScreen() {
-        if (currentScreen == Screen.FULL_PLAYER || currentScreen == Screen.BACKGROUND_POPUP) {
-            return Screen.HOME;
-        }
-        return currentScreen;
-    }
-
-    private void showPlayerReturnScreen() {
-        switch (playerReturnScreen) {
-            case EXPLORE:
-                showExplore();
-                break;
-            case SEARCH:
-                showSearch();
-                break;
-            case LIBRARY:
-                showLibrary();
-                break;
-            case PROFILE:
-                showProfile();
-                break;
-            case DETAIL:
-                showDetail();
-                break;
-            case EBOOK_DETAIL:
-                showEbookDetail();
-                break;
-            case HOME:
-            case FULL_PLAYER:
-            case BACKGROUND_POPUP:
-            default:
-                showHome();
-                break;
-        }
     }
 
     private boolean handleProgressTouch(View view, MotionEvent event) {
@@ -458,7 +535,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Toast.makeText(this, "Login success", Toast.LENGTH_SHORT).show();
-        showHome();
+        navigator.resetTo(Screen.HOME);
     }
 
     private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput) {
@@ -475,7 +552,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Toast.makeText(this, "Register success", Toast.LENGTH_SHORT).show();
-        showHome();
+        navigator.resetTo(Screen.HOME);
     }
 
     private void handleForgotPassword(EditText emailInput) {
@@ -484,7 +561,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Toast.makeText(this, "Instruction sent to email", Toast.LENGTH_SHORT).show();
-        showLogin();
+        navigator.resetTo(Screen.LOGIN);
     }
 
     private boolean validateEmailField(EditText emailInput) {
@@ -539,7 +616,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void openTopic(String topic) {
         Toast.makeText(this, "Open topic: " + topic, Toast.LENGTH_SHORT).show();
-        showSearch();
+        navigator.navigateTo(Screen.SEARCH);
     }
 
     private void onLibraryFilterSelected(String filter) {
