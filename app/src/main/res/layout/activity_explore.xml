@@ -56,6 +56,7 @@
             </androidx.constraintlayout.widget.ConstraintLayout>
 
             <EditText
+                android:id="@+id/edtExploreSearch"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="20dp"
@@ -102,10 +103,18 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:columnCount="2">
-                <include layout="@layout/topic_ai" />
-                <include layout="@layout/topic_skills" />
-                <include layout="@layout/topic_data" />
-                <include layout="@layout/topic_languages" />
+                <include
+                    android:id="@+id/topicAi"
+                    layout="@layout/topic_ai" />
+                <include
+                    android:id="@+id/topicSkills"
+                    layout="@layout/topic_skills" />
+                <include
+                    android:id="@+id/topicData"
+                    layout="@layout/topic_data" />
+                <include
+                    android:id="@+id/topicLanguages"
+                    layout="@layout/topic_languages" />
             </GridLayout>
 
             <TextView

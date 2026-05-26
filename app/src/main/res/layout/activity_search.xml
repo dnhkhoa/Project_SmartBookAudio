@@ -41,16 +41,20 @@
                 android:paddingStart="18dp"
                 android:paddingEnd="14dp">
 
-                <TextView
-                    android:id="@+id/searchQuery"
+                <EditText
+                    android:id="@+id/edtSearchQuery"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:text="@string/keyword_android_service"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:hint="@string/search_title"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:singleLine="true"
                     android:textColor="@color/text_dark"
                     android:textSize="14sp"
                     android:textStyle="bold"
                     app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toStartOf="@id/searchIcon"
+                    app:layout_constraintEnd_toStartOf="@id/btnClearSearch"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent" />
 
@@ -63,7 +67,40 @@
                     app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintTop_toTopOf="parent" />
+
+                <ImageView
+                    android:id="@+id/btnClearSearch"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginEnd="10dp"
+                    android:contentDescription="@string/desc_back"
+                    android:src="@drawable/ic_close_small"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toStartOf="@id/searchIcon"
+                    app:layout_constraintTop_toTopOf="parent" />
             </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:text="Recent searches"
+                android:textColor="@color/text_dark"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <include
+                android:id="@+id/recentSearchAndroid"
+                layout="@layout/recent_search_android" />
+            <include
+                android:id="@+id/recentSearchMl"
+                layout="@layout/recent_search_ml" />
+            <include
+                android:id="@+id/recentSearchStudy"
+                layout="@layout/recent_search_study" />
+            <include
+                android:id="@+id/recentSearchTts"
+                layout="@layout/recent_search_tts" />
 
             <HorizontalScrollView
                 android:layout_width="match_parent"
