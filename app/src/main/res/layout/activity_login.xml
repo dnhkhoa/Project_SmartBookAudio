@@ -91,22 +91,28 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent" />
 
-            <EditText
-                android:id="@+id/edtEmail"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilLoginEmail"
                 android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:autofillHints="emailAddress"
-                android:background="@drawable/bg_input"
-                android:hint="@string/hint_email"
-                android:inputType="textEmailAddress"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:textSize="13sp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/lblEmail" />
+                app:layout_constraintTop_toBottomOf="@id/lblEmail">
+
+                <EditText
+                    android:id="@+id/edtEmail"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:autofillHints="emailAddress"
+                    android:background="@drawable/bg_input"
+                    android:hint="@string/hint_email"
+                    android:inputType="textEmailAddress"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
                 android:id="@+id/lblPassword"
@@ -119,24 +125,30 @@
                 android:textStyle="bold"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/edtEmail" />
+                app:layout_constraintTop_toBottomOf="@id/tilLoginEmail" />
 
-            <EditText
-                android:id="@+id/edtPassword"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilLoginPassword"
                 android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:autofillHints="password"
-                android:background="@drawable/bg_input"
-                android:hint="@string/hint_password"
-                android:inputType="textPassword"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:textSize="13sp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/lblPassword" />
+                app:layout_constraintTop_toBottomOf="@id/lblPassword">
+
+                <EditText
+                    android:id="@+id/edtPassword"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:autofillHints="password"
+                    android:background="@drawable/bg_input"
+                    android:hint="@string/hint_password"
+                    android:inputType="textPassword"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <CheckBox
                 android:id="@+id/chkRemember"
@@ -148,7 +160,7 @@
                 android:textColor="@color/text_gray"
                 android:textSize="11sp"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/edtPassword" />
+                app:layout_constraintTop_toBottomOf="@id/tilLoginPassword" />
 
             <TextView
                 android:id="@+id/txtForgot"

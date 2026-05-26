@@ -48,19 +48,25 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <EditText
-                android:id="@+id/edtFullName"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilRegisterFullName"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="8dp"
-                android:autofillHints="name"
-                android:background="@drawable/bg_input"
-                android:hint="@string/hint_full_name"
-                android:inputType="textPersonName"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:textSize="13sp" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp">
+
+                <EditText
+                    android:id="@+id/edtFullName"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:autofillHints="name"
+                    android:background="@drawable/bg_input"
+                    android:hint="@string/hint_full_name"
+                    android:inputType="textPersonName"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
                 android:layout_width="match_parent"
@@ -71,19 +77,25 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <EditText
-                android:id="@+id/edtEmail"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilRegisterEmail"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="8dp"
-                android:autofillHints="emailAddress"
-                android:background="@drawable/bg_input"
-                android:hint="@string/hint_email"
-                android:inputType="textEmailAddress"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:textSize="13sp" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp">
+
+                <EditText
+                    android:id="@+id/edtEmail"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:autofillHints="emailAddress"
+                    android:background="@drawable/bg_input"
+                    android:hint="@string/hint_email"
+                    android:inputType="textEmailAddress"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
                 android:layout_width="match_parent"
@@ -94,19 +106,25 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <EditText
-                android:id="@+id/edtPassword"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilRegisterPassword"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="8dp"
-                android:autofillHints="newPassword"
-                android:background="@drawable/bg_input"
-                android:hint="@string/hint_password"
-                android:inputType="textPassword"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:textSize="13sp" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp">
+
+                <EditText
+                    android:id="@+id/edtPassword"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:autofillHints="newPassword"
+                    android:background="@drawable/bg_input"
+                    android:hint="@string/hint_password"
+                    android:inputType="textPassword"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
                 android:layout_width="match_parent"
@@ -117,19 +135,25 @@
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <EditText
-                android:id="@+id/edtConfirmPassword"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilRegisterConfirmPassword"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="8dp"
-                android:autofillHints="newPassword"
-                android:background="@drawable/bg_input"
-                android:hint="@string/hint_password"
-                android:inputType="textPassword"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:singleLine="true"
-                android:textSize="13sp" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp">
+
+                <EditText
+                    android:id="@+id/edtConfirmPassword"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:autofillHints="newPassword"
+                    android:background="@drawable/bg_input"
+                    android:hint="@string/hint_password"
+                    android:inputType="textPassword"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:singleLine="true"
+                    android:textSize="13sp" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <CheckBox
                 android:id="@+id/chkTerms"

@@ -13,6 +13,7 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -22,6 +23,7 @@ import java.util.Locale;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.regex.Pattern;
 
@@ -48,7 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable searchRunnable = this::runSearch;
+    private final Runnable searchRunnable = this::runDebouncedSearch;
     private final Navigator navigator = new Navigator();
     private static final long SEARCH_DEBOUNCE_MS = 450L;
     private static final Pattern EMAIL_PATTERN =
@@ -59,6 +61,8 @@ public class MainActivity extends AppCompatActivity {
     private int playbackSpeedIndex = 1;
     private int selectedLibraryFilter = 0;
     private boolean isPlaying = true;
+    private boolean cleanCodeRemoved = false;
+    private boolean librarySortAscending = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -199,9 +203,12 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_login);
         EditText emailInput = findViewById(R.id.edtEmail);
         EditText passwordInput = findViewById(R.id.edtPassword);
+        TextInputLayout emailLayout = findViewById(R.id.tilLoginEmail);
+        TextInputLayout passwordLayout = findViewById(R.id.tilLoginPassword);
         findViewById(R.id.txtForgot).setOnClickListener(v -> navigator.navigateTo(Screen.FORGOT_PASSWORD));
         findViewById(R.id.txtGoRegister).setOnClickListener(v -> navigator.navigateTo(Screen.REGISTER));
-        findViewById(R.id.btnLogin).setOnClickListener(v -> handleLogin(emailInput, passwordInput));
+        findViewById(R.id.btnLogin).setOnClickListener(v ->
+                handleLogin(emailInput, passwordInput, emailLayout, passwordLayout));
     }
 
     private void showRegister() {
@@ -212,9 +219,14 @@ public class MainActivity extends AppCompatActivity {
         EditText emailInput = findViewById(R.id.edtEmail);
         EditText passwordInput = findViewById(R.id.edtPassword);
         EditText confirmPasswordInput = findViewById(R.id.edtConfirmPassword);
+        TextInputLayout fullNameLayout = findViewById(R.id.tilRegisterFullName);
+        TextInputLayout emailLayout = findViewById(R.id.tilRegisterEmail);
+        TextInputLayout passwordLayout = findViewById(R.id.tilRegisterPassword);
+        TextInputLayout confirmPasswordLayout = findViewById(R.id.tilRegisterConfirmPassword);
         findViewById(R.id.txtGoLogin).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnRegister).setOnClickListener(v ->
-                handleRegister(fullNameInput, emailInput, passwordInput, confirmPasswordInput));
+                handleRegister(fullNameInput, emailInput, passwordInput, confirmPasswordInput,
+                        fullNameLayout, emailLayout, passwordLayout, confirmPasswordLayout));
     }
 
     private void showForgotPassword() {
@@ -222,9 +234,10 @@ public class MainActivity extends AppCompatActivity {
         prepareLightWindow();
         setContentView(R.layout.activity_forgot_password);
         EditText emailInput = findViewById(R.id.edtEmail);
+        TextInputLayout emailLayout = findViewById(R.id.tilForgotEmail);
         findViewById(R.id.btnBack).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.txtBackLogin).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.btnSendInstruction).setOnClickListener(v -> handleForgotPassword(emailInput));
+        findViewById(R.id.btnSendInstruction).setOnClickListener(v -> handleForgotPassword(emailInput, emailLayout));
     }
 
     private void showHome() {
@@ -288,19 +301,18 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
-        findViewById(R.id.btnLibrarySort).setOnClickListener(v ->
-                Toast.makeText(this, "Sort: Updated recently", Toast.LENGTH_SHORT).show());
-        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
-        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
-        findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> openFullPlayer());
+        findViewById(R.id.btnLibrarySort).setOnClickListener(v -> sortLibraryItems());
+        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> addLibraryItem());
+        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> addLibraryItem());
+        findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
         findViewById(R.id.libraryItemAndroidPlay).setOnClickListener(v -> openFullPlayer());
-        findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> openFullPlayer());
+        findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
         findViewById(R.id.libraryItemCleanCode).setOnLongClickListener(v -> {
-            Toast.makeText(this, "Removed item from playlist", Toast.LENGTH_SHORT).show();
+            removeLibraryItem();
             return true;
         });
-        findViewById(R.id.libraryItemEnglish).setOnClickListener(v -> openFullPlayer());
-        findViewById(R.id.libraryItemAiLecture).setOnClickListener(v -> showToast("Audio is still processing"));
+        findViewById(R.id.libraryItemEnglish).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
+        findViewById(R.id.libraryItemAiLecture).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
         bindLibraryFilters();
     }
 
@@ -480,7 +492,7 @@ public class MainActivity extends AppCompatActivity {
         setLibraryFilterState(R.id.filterDownloaded, selectedLibraryFilter == 2);
         setLibraryFilterState(R.id.filterCompleted, selectedLibraryFilter == 3);
         setLibraryItemVisibility(R.id.libraryItemAndroid, selectedLibraryFilter == 0 || selectedLibraryFilter == 1);
-        setLibraryItemVisibility(R.id.libraryItemCleanCode, selectedLibraryFilter == 0 || selectedLibraryFilter == 1 || selectedLibraryFilter == 3);
+        setLibraryItemVisibility(R.id.libraryItemCleanCode, !cleanCodeRemoved && (selectedLibraryFilter == 0 || selectedLibraryFilter == 1 || selectedLibraryFilter == 3));
         setLibraryItemVisibility(R.id.libraryItemAiLecture, selectedLibraryFilter == 0);
         setLibraryItemVisibility(R.id.libraryItemEnglish, selectedLibraryFilter == 0 || selectedLibraryFilter == 2);
     }
@@ -528,8 +540,8 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setBackgroundDrawableResource(R.drawable.bg_screen);
     }
 
-    private void handleLogin(EditText emailInput, EditText passwordInput) {
-        boolean valid = validateEmailField(emailInput) & validateRequired(passwordInput, "Password is required");
+    private void handleLogin(EditText emailInput, EditText passwordInput, TextInputLayout emailLayout, TextInputLayout passwordLayout) {
+        boolean valid = validateEmailField(emailInput, emailLayout) & validateRequired(passwordInput, passwordLayout, "Password is required");
         if (!valid) {
             Toast.makeText(this, "Login failed. Please check your input.", Toast.LENGTH_SHORT).show();
             return;
@@ -538,13 +550,14 @@ public class MainActivity extends AppCompatActivity {
         navigator.resetTo(Screen.HOME);
     }
 
-    private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput) {
-        boolean valid = validateRequired(fullNameInput, "Full name is required")
-                & validateEmailField(emailInput)
-                & validateRequired(passwordInput, "Password is required")
-                & validateRequired(confirmPasswordInput, "Confirm password is required");
+    private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput,
+                                TextInputLayout fullNameLayout, TextInputLayout emailLayout, TextInputLayout passwordLayout, TextInputLayout confirmPasswordLayout) {
+        boolean valid = validateRequired(fullNameInput, fullNameLayout, "Full name is required")
+                & validateEmailField(emailInput, emailLayout)
+                & validateRequired(passwordInput, passwordLayout, "Password is required")
+                & validateRequired(confirmPasswordInput, confirmPasswordLayout, "Confirm password is required");
         if (valid && !TextUtils.equals(passwordInput.getText(), confirmPasswordInput.getText())) {
-            confirmPasswordInput.setError("Passwords do not match");
+            setInputError(confirmPasswordLayout, "Passwords do not match");
             valid = false;
         }
         if (!valid) {
@@ -555,8 +568,8 @@ public class MainActivity extends AppCompatActivity {
         navigator.resetTo(Screen.HOME);
     }
 
-    private void handleForgotPassword(EditText emailInput) {
-        if (!validateEmailField(emailInput)) {
+    private void handleForgotPassword(EditText emailInput, TextInputLayout emailLayout) {
+        if (!validateEmailField(emailInput, emailLayout)) {
             Toast.makeText(this, "Cannot send instruction. Invalid email.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -564,39 +577,107 @@ public class MainActivity extends AppCompatActivity {
         navigator.resetTo(Screen.LOGIN);
     }
 
-    private boolean validateEmailField(EditText emailInput) {
+    private boolean validateEmailField(EditText emailInput, TextInputLayout inputLayout) {
         String email = emailInput.getText().toString().trim();
         if (TextUtils.isEmpty(email)) {
-            emailInput.setError("Email is required");
+            setInputError(inputLayout, "Email is required");
             return false;
         }
         if (!EMAIL_PATTERN.matcher(email).matches()) {
-            emailInput.setError("Invalid email format");
+            setInputError(inputLayout, "Invalid email format");
             return false;
         }
-        emailInput.setError(null);
+        clearInputError(inputLayout);
         return true;
     }
 
-    private boolean validateRequired(EditText input, String message) {
+    private boolean validateRequired(EditText input, TextInputLayout inputLayout, String message) {
         if (TextUtils.isEmpty(input.getText().toString().trim())) {
-            input.setError(message);
+            setInputError(inputLayout, message);
             return false;
         }
-        input.setError(null);
+        clearInputError(inputLayout);
         return true;
+    }
+
+    private void setInputError(TextInputLayout inputLayout, String message) {
+        inputLayout.setErrorEnabled(true);
+        inputLayout.setError(message);
+    }
+
+    private void clearInputError(TextInputLayout inputLayout) {
+        inputLayout.setError(null);
+        inputLayout.setErrorEnabled(false);
+    }
+
+    private void removeLibraryItem() {
+        cleanCodeRemoved = true;
+        updateLibraryFilters();
+        showToast("Removed item");
+    }
+
+    private void addLibraryItem() {
+        if (!cleanCodeRemoved) {
+            showToast("Playlist created");
+            return;
+        }
+        cleanCodeRemoved = false;
+        updateLibraryFilters();
+        showToast("Added item back to playlist");
+    }
+
+    private void sortLibraryItems() {
+        LinearLayout content = findViewById(R.id.libraryContent);
+        View androidItem = findViewById(R.id.libraryItemAndroid);
+        View cleanCodeItem = findViewById(R.id.libraryItemCleanCode);
+        View aiItem = findViewById(R.id.libraryItemAiLecture);
+        View englishItem = findViewById(R.id.libraryItemEnglish);
+
+        content.removeView(androidItem);
+        content.removeView(cleanCodeItem);
+        content.removeView(aiItem);
+        content.removeView(englishItem);
+
+        int insertIndex = 2;
+        if (librarySortAscending) {
+            content.addView(aiItem, insertIndex++);
+            content.addView(androidItem, insertIndex++);
+            content.addView(cleanCodeItem, insertIndex++);
+            content.addView(englishItem, insertIndex);
+            showToast("Sort: A-Z");
+        } else {
+            content.addView(englishItem, insertIndex++);
+            content.addView(cleanCodeItem, insertIndex++);
+            content.addView(androidItem, insertIndex++);
+            content.addView(aiItem, insertIndex);
+            showToast("Sort: Z-A");
+        }
+        librarySortAscending = !librarySortAscending;
+        updateLibraryFilters();
     }
 
     private void runSearch() {
+        performSearch(true);
+    }
+
+    private void runDebouncedSearch() {
+        performSearch(false);
+    }
+
+    private void performSearch(boolean isSubmit) {
         if (searchInput == null) {
             return;
         }
         String query = searchInput.getText().toString().trim();
         if (query.isEmpty()) {
-            Toast.makeText(this, "Please enter keyword", Toast.LENGTH_SHORT).show();
+            if (isSubmit) {
+                Toast.makeText(this, "Please enter keyword", Toast.LENGTH_SHORT).show();
+            }
             return;
         }
-        Toast.makeText(this, "Searching: " + query, Toast.LENGTH_SHORT).show();
+        if (isSubmit) {
+            Toast.makeText(this, "Searching: " + query, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void clearSearch() {
@@ -615,12 +696,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openTopic(String topic) {
-        Toast.makeText(this, "Open topic: " + topic, Toast.LENGTH_SHORT).show();
         navigator.navigateTo(Screen.SEARCH);
-    }
-
-    private void onLibraryFilterSelected(String filter) {
-        Toast.makeText(this, "Filter: " + filter, Toast.LENGTH_SHORT).show();
+        if (searchInput != null) {
+            searchInput.setText(topic);
+            searchInput.setSelection(topic.length());
+        }
+        runSearch();
     }
 
     private final class DebounceSearchWatcher implements TextWatcher {
@@ -639,3 +720,4 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
+
