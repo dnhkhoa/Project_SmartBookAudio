@@ -1,5 +1,4 @@
 package com.example.smartaudiobook;
-
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -7,6 +6,7 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,9 +23,13 @@ import java.util.Locale;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import com.google.firebase.Timestamp;
+import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.regex.Pattern;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PLAYER_DURATION_SECONDS = 18 * 60 + 30;
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
+    private static final String FIRESTORE_TEST_TAG = "FS_TEST";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
@@ -547,7 +552,37 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Toast.makeText(this, "Login success", Toast.LENGTH_SHORT).show();
+        runFirestoreConnectionTest(emailInput.getText().toString().trim());
         navigator.resetTo(Screen.HOME);
+    }
+
+    private void runFirestoreConnectionTest(String email) {
+        String normalizedEmail = TextUtils.isEmpty(email) ? "demo" : email.toLowerCase(Locale.US);
+        String docId = "test_" + normalizedEmail.replaceAll("[^a-z0-9]", "_");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("ping", "ok");
+        data.put("email", normalizedEmail);
+        data.put("time", Timestamp.now());
+
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
+        db.collection("users").document(docId).set(data)
+                .addOnSuccessListener(unused -> {
+                    Log.d(FIRESTORE_TEST_TAG, "WRITE_OK docId=" + docId);
+                    db.collection("users").document(docId).get()
+                            .addOnSuccessListener(snapshot -> {
+                                Log.d(FIRESTORE_TEST_TAG, "READ_OK data=" + snapshot.getData());
+                                Toast.makeText(this, "Firebase OK (write/read success)", Toast.LENGTH_SHORT).show();
+                            })
+                            .addOnFailureListener(error -> {
+                                Log.e(FIRESTORE_TEST_TAG, "READ_FAIL", error);
+                                Toast.makeText(this, "Firebase read failed", Toast.LENGTH_SHORT).show();
+                            });
+                })
+                .addOnFailureListener(error -> {
+                    Log.e(FIRESTORE_TEST_TAG, "WRITE_FAIL", error);
+                    Toast.makeText(this, "Firebase write failed", Toast.LENGTH_SHORT).show();
+                });
     }
 
     private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput,
