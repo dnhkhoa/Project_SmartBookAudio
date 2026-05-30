@@ -24,6 +24,8 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import com.google.firebase.Timestamp;
+import com.google.firebase.analytics.FirebaseAnalytics;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -552,8 +554,38 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Toast.makeText(this, "Login success", Toast.LENGTH_SHORT).show();
-        runFirestoreConnectionTest(emailInput.getText().toString().trim());
-        navigator.resetTo(Screen.HOME);
+
+        // Many Firestore default rules require request.auth != null. Ensure we're signed in (anonymous)
+        // before doing the write/read smoke-test.
+        ensureFirebaseSignedIn(() -> {
+            // Firebase Analytics smoke-test (verify in DebugView + Logcat).
+            String email = emailInput.getText().toString().trim();
+            FirebaseAnalytics analytics = FirebaseAnalytics.getInstance(this);
+            Bundle loginEvent = new Bundle();
+            loginEvent.putString("email_hint", TextUtils.isEmpty(email) ? "empty" : "present");
+            analytics.logEvent("login_smoke_test", loginEvent);
+            analytics.setUserProperty("has_email", TextUtils.isEmpty(email) ? "false" : "true");
+
+            runFirestoreConnectionTest(email);
+            navigator.resetTo(Screen.HOME);
+        });
+    }
+
+    private void ensureFirebaseSignedIn(Runnable onReady) {
+        FirebaseAuth auth = FirebaseAuth.getInstance();
+        if (auth.getCurrentUser() != null) {
+            onReady.run();
+            return;
+        }
+        auth.signInAnonymously()
+                .addOnSuccessListener(result -> {
+                    Log.d(FIRESTORE_TEST_TAG, "AUTH_OK uid=" + auth.getCurrentUser().getUid());
+                    onReady.run();
+                })
+                .addOnFailureListener(error -> {
+                    Log.e(FIRESTORE_TEST_TAG, "AUTH_FAIL", error);
+                    Toast.makeText(this, "Firebase Auth failed (enable Anonymous in Firebase Console)", Toast.LENGTH_LONG).show();
+                });
     }
 
     private void runFirestoreConnectionTest(String email) {
