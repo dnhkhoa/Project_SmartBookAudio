@@ -70,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
     private static final String DEFAULT_BOOK_ID = "clean-code-principles";
     private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
+    private static final String DEFAULT_DEMO_UID = "test_user_001";
     private static final String BOOK_ANDROID = "atomic-habits";
     private static final String BOOK_CLEAN_CODE = "clean-code-principles";
     private static final String BOOK_AI = "ai-for-everyone";
@@ -95,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isPlaying = true;
     private boolean librarySortAscending = true;
     private String activeUid = "";
+    private String activeAccountEmail = "";
     private String selectedBookId = DEFAULT_BOOK_ID;
     private String selectedBookTitle = DEFAULT_BOOK_TITLE;
     private final List<Chapter> playerQueue = new ArrayList<>();
@@ -115,7 +117,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         navigator.resetTo(Screen.HOME);
-        ensureAuthenticated(null);
 
     }
 
@@ -857,35 +858,48 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void ensureAuthenticated(String email, Runnable onReady) {
-        if (!TextUtils.isEmpty(activeUid)) {
-            if (!TextUtils.isEmpty(email)) {
-                profileService.ensureProfile(activeUid, email, new NoopFirestoreCallback<>());
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase(Locale.US);
+        String desiredUid = TextUtils.isEmpty(normalizedEmail) ? activeUid : buildUserDocumentId(normalizedEmail);
+        if (TextUtils.isEmpty(desiredUid)) {
+            desiredUid = DEFAULT_DEMO_UID;
+        }
+        boolean accountChanged = !desiredUid.equals(activeUid);
+        activeUid = desiredUid;
+        if (!TextUtils.isEmpty(normalizedEmail)) {
+            activeAccountEmail = normalizedEmail;
+        }
+        if (accountChanged) {
+            libraryBookIds.clear();
+            libraryStatuses.clear();
+        }
+
+        Runnable readyAfterProfile = () -> profileService.ensureProfile(activeUid, activeAccountEmail, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                if (onReady != null) {
+                    onReady.run();
+                }
             }
-            if (onReady != null) {
-                onReady.run();
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PROFILE_ENSURE_FAIL uid=" + activeUid, error);
+                if (onReady != null) {
+                    onReady.run();
+                }
             }
+        });
+
+        if (!TextUtils.isEmpty(authService.currentUid())) {
+            readyAfterProfile.run();
             return;
         }
+
         authService.ensureSignedIn(new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String uid) {
-                activeUid = uid;
-                profileService.ensureProfile(uid, email, new FirestoreCallback<Void>() {
-                    @Override
-                    public void onSuccess(Void value) {
-                        if (onReady != null) {
-                            onReady.run();
-                        }
-                    }
-
-                    @Override
-                    public void onError(Exception error) {
-                        Log.e(FIRESTORE_TAG, "PROFILE_ENSURE_FAIL uid=" + uid, error);
-                        if (onReady != null) {
-                            onReady.run();
-                        }
-                    }
-                });
+                Log.d(FIRESTORE_TAG, "AUTH_OK firebaseUid=" + uid + " appUser=" + activeUid);
+                readyAfterProfile.run();
             }
 
             @Override
@@ -894,6 +908,22 @@ public class MainActivity extends AppCompatActivity {
                 showToast("Firebase Auth failed");
             }
         });
+    }
+
+    private String buildUserDocumentId(String email) {
+        String localPart = email;
+        int atIndex = email.indexOf('@');
+        if (atIndex > 0) {
+            localPart = email.substring(0, atIndex);
+        }
+        String normalized = localPart
+                .toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "");
+        if ("testuser".equals(normalized)) {
+            return DEFAULT_DEMO_UID;
+        }
+        return TextUtils.isEmpty(normalized) ? DEFAULT_DEMO_UID : normalized;
     }
 
     private void loadLibraryFromFirestore() {
