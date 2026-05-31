@@ -335,6 +335,55 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.menuDataStorage).setOnClickListener(v -> showProfileAction(getString(R.string.profile_data_storage)));
         findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
         findViewById(R.id.btnSignOut).setOnClickListener(v -> navigator.resetTo(Screen.LOGIN));
+
+        bindProfileFromFirebase();
+    }
+
+    private void bindProfileFromFirebase() {
+        TextView nameView = findViewById(R.id.profileName);
+        TextView avatarView = findViewById(R.id.profileAvatar);
+        TextView emailView = findViewById(R.id.profileEmail);
+        TextView planView = findViewById(R.id.profilePlanValue);
+
+        FirebaseAuth auth = FirebaseAuth.getInstance();
+        if (auth.getCurrentUser() == null) {
+            nameView.setText("Guest");
+            emailView.setText("Not signed in");
+            avatarView.setText("G");
+            planView.setText("Free");
+            return;
+        }
+
+        String uid = auth.getCurrentUser().getUid();
+        FirebaseFirestore.getInstance()
+                .collection("users")
+                .document(uid)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (!snapshot.exists()) {
+                        Log.d(FIRESTORE_TEST_TAG, "PROFILE_NOT_FOUND uid=" + uid);
+                        emailView.setText("No profile document");
+                        planView.setText("Free");
+                        return;
+                    }
+
+                    String displayName = snapshot.getString("displayName");
+                    String email = snapshot.getString("email");
+                    Boolean isPremium = snapshot.getBoolean("isPremium");
+
+                    if (!TextUtils.isEmpty(displayName)) {
+                        nameView.setText(displayName);
+                        avatarView.setText(displayName.substring(0, 1).toUpperCase(Locale.US));
+                    }
+                    if (!TextUtils.isEmpty(email)) {
+                        emailView.setText(email);
+                    }
+                    planView.setText(Boolean.TRUE.equals(isPremium) ? "Premium" : "Free");
+                })
+                .addOnFailureListener(error -> {
+                    Log.e(FIRESTORE_TEST_TAG, "PROFILE_READ_FAIL uid=" + uid, error);
+                    emailView.setText("Profile load failed");
+                });
     }
 
     private void showDetail() {
