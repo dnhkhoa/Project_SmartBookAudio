@@ -7,6 +7,8 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/deploymentTargetSelector.xml
+/app/.idea/
 .DS_Store
 /build
 /captures
@@ -14,3 +16,5 @@
 .cxx
 local.properties
 figma_refs/
+app/google-services.json
+app/*firebase-adminsdk*.json

@@ -1,0 +1,92 @@
+{
+  "users": [
+    {
+      "uid": "test_user_001",
+      "profile": {
+        "displayName": "SmartBook Demo Listener",
+        "email": "testuser@gmail.com",
+        "isPremium": false,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "English",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    },
+    {
+      "uid": "nguyen_tien_cuong",
+      "profile": {
+        "displayName": "Nguyen Tien Cuong",
+        "email": "nguyen.tien.cuong@student.hcmute.edu.vn",
+        "isPremium": false,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "Vietnamese",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    },
+    {
+      "uid": "truong_dinh_khoa",
+      "profile": {
+        "displayName": "Truong Dinh Khoa",
+        "email": "truong.dinh.khoa@student.hcmute.edu.vn",
+        "isPremium": true,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "Vietnamese",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    },
+    {
+      "uid": "vo_huu_loc",
+      "profile": {
+        "displayName": "Vo Huu Loc",
+        "email": "vo.huu.loc@student.hcmute.edu.vn",
+        "isPremium": true,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "Vietnamese",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    }
+  ],
+  "library": [
+    {
+      "bookId": "atomic-habits",
+      "status": "saved",
+      "lastChapterId": "chapter-01",
+      "lastPositionSec": 320
+    },
+    {
+      "bookId": "clean-code-principles",
+      "status": "saved",
+      "lastChapterId": "chapter-02",
+      "lastPositionSec": 880
+    },
+    {
+      "bookId": "ai-for-everyone",
+      "status": "downloading",
+      "lastChapterId": "chapter-01",
+      "lastPositionSec": 120
+    },
+    {
+      "bookId": "the-little-prince",
+      "status": "finished",
+      "lastChapterId": "chapter-03",
+      "lastPositionSec": 1440
+    }
+  ],
+  "playback": {
+    "bookId": "clean-code-principles",
+    "bookTitle": "Clean Code Principles",
+    "chapterId": "chapter-02",
+    "chapterTitle": "Chapter 2: Functions That Tell the Truth",
+    "positionSec": 880,
+    "durationSec": 2160,
+    "speed": "1.0x",
+    "isPlaying": false
+  }
+}

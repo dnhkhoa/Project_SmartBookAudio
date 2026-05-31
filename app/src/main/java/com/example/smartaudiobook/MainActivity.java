@@ -1,4 +1,5 @@
 package com.example.smartaudiobook;
+
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -18,20 +19,32 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import com.google.firebase.Timestamp;
-import com.google.firebase.analytics.FirebaseAnalytics;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.firestore.FirebaseFirestore;
+
+import com.example.smartaudiobook.data.FirestoreCallback;
+import com.example.smartaudiobook.data.model.Chapter;
+import com.example.smartaudiobook.data.model.LibraryEntry;
+import com.example.smartaudiobook.data.model.PlayerState;
+import com.example.smartaudiobook.data.model.UserProfile;
+import com.example.smartaudiobook.data.service.AuthService;
+import com.example.smartaudiobook.data.service.BookCatalogService;
+import com.example.smartaudiobook.data.service.ChapterService;
+import com.example.smartaudiobook.data.service.PlaybackStateService;
+import com.example.smartaudiobook.data.service.ProfileService;
+import com.example.smartaudiobook.data.service.UserLibraryService;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.regex.Pattern;
-import java.util.HashMap;
-import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -52,13 +65,26 @@ public class MainActivity extends AppCompatActivity {
         BACKGROUND_POPUP
     }
 
-    private static final int PLAYER_DURATION_SECONDS = 18 * 60 + 30;
+    private static final int DEFAULT_PLAYER_DURATION_SECONDS = 18 * 60 + 30;
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
-    private static final String FIRESTORE_TEST_TAG = "FS_TEST";
+    private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
+    private static final String DEFAULT_BOOK_ID = "clean-code-principles";
+    private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
+    private static final String DEFAULT_DEMO_UID = "test_user_001";
+    private static final String BOOK_ANDROID = "atomic-habits";
+    private static final String BOOK_CLEAN_CODE = "clean-code-principles";
+    private static final String BOOK_AI = "ai-for-everyone";
+    private static final String BOOK_ENGLISH = "the-little-prince";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
     private final Navigator navigator = new Navigator();
+    private final AuthService authService = new AuthService();
+    private final BookCatalogService bookCatalogService = new BookCatalogService();
+    private final ChapterService chapterService = new ChapterService();
+    private final PlaybackStateService playbackStateService = new PlaybackStateService();
+    private final ProfileService profileService = new ProfileService();
+    private final UserLibraryService userLibraryService = new UserLibraryService();
     private static final long SEARCH_DEBOUNCE_MS = 450L;
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$", Pattern.CASE_INSENSITIVE);
@@ -68,8 +94,15 @@ public class MainActivity extends AppCompatActivity {
     private int playbackSpeedIndex = 1;
     private int selectedLibraryFilter = 0;
     private boolean isPlaying = true;
-    private boolean cleanCodeRemoved = false;
     private boolean librarySortAscending = true;
+    private String activeUid = "";
+    private String activeAccountEmail = "";
+    private String selectedBookId = DEFAULT_BOOK_ID;
+    private String selectedBookTitle = DEFAULT_BOOK_TITLE;
+    private final List<Chapter> playerQueue = new ArrayList<>();
+    private int currentChapterIndex = 0;
+    private final Set<String> libraryBookIds = new HashSet<>();
+    private final Map<String, String> libraryStatuses = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -309,18 +342,19 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.btnLibrarySort).setOnClickListener(v -> sortLibraryItems());
-        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> addLibraryItem());
-        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> addLibraryItem());
-        findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
-        findViewById(R.id.libraryItemAndroidPlay).setOnClickListener(v -> openFullPlayer());
-        findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
+        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> showCreateAudioBookDialog());
+        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> showCreateAudioBookDialog());
+        findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> openBookDetail(BOOK_ANDROID));
+        findViewById(R.id.libraryItemAndroidPlay).setOnClickListener(v -> openFullPlayer(BOOK_ANDROID));
+        findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> openBookDetail(BOOK_CLEAN_CODE));
         findViewById(R.id.libraryItemCleanCode).setOnLongClickListener(v -> {
-            removeLibraryItem();
+            removeLibraryItem(BOOK_CLEAN_CODE);
             return true;
         });
-        findViewById(R.id.libraryItemEnglish).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
-        findViewById(R.id.libraryItemAiLecture).setOnClickListener(v -> navigator.navigateTo(Screen.DETAIL));
+        findViewById(R.id.libraryItemEnglish).setOnClickListener(v -> openBookDetail(BOOK_ENGLISH));
+        findViewById(R.id.libraryItemAiLecture).setOnClickListener(v -> openBookDetail(BOOK_AI));
         bindLibraryFilters();
+        loadLibraryFromFirestore();
     }
 
     private void showProfile() {
@@ -330,9 +364,12 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
-        findViewById(R.id.menuDefaultVoice).setOnClickListener(v -> showProfileAction(getString(R.string.profile_default_voice)));
-        findViewById(R.id.menuAppLanguage).setOnClickListener(v -> showProfileAction(getString(R.string.profile_app_language)));
-        findViewById(R.id.menuDataStorage).setOnClickListener(v -> showProfileAction(getString(R.string.profile_data_storage)));
+        findViewById(R.id.menuDefaultVoice).setOnClickListener(v ->
+                updateProfilePreference("defaultVoice", "Natural voice", "Default voice updated"));
+        findViewById(R.id.menuAppLanguage).setOnClickListener(v ->
+                updateProfilePreference("appLanguage", "Vietnamese", "Language preference updated"));
+        findViewById(R.id.menuDataStorage).setOnClickListener(v ->
+                updateProfilePreference("storageMode", "Offline first", "Storage preference updated"));
         findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
         findViewById(R.id.btnSignOut).setOnClickListener(v -> navigator.resetTo(Screen.LOGIN));
 
@@ -344,46 +381,33 @@ public class MainActivity extends AppCompatActivity {
         TextView avatarView = findViewById(R.id.profileAvatar);
         TextView emailView = findViewById(R.id.profileEmail);
         TextView planView = findViewById(R.id.profilePlanValue);
+        TextView booksView = findViewById(R.id.profileBooksValue);
+        TextView hoursView = findViewById(R.id.profileHoursValue);
 
-        FirebaseAuth auth = FirebaseAuth.getInstance();
-        if (auth.getCurrentUser() == null) {
-            nameView.setText("Guest");
-            emailView.setText("Not signed in");
-            avatarView.setText("G");
-            planView.setText("Free");
-            return;
-        }
+        ensureAuthenticated(() -> profileService.loadProfile(activeUid, new FirestoreCallback<UserProfile>() {
+            @Override
+            public void onSuccess(UserProfile profile) {
+                if (profile == null) {
+                    nameView.setText("Guest");
+                    emailView.setText("No profile document");
+                    avatarView.setText("G");
+                    planView.setText("Free");
+                    return;
+                }
+                nameView.setText(profile.displayName);
+                emailView.setText(TextUtils.isEmpty(profile.email) ? "Anonymous listener" : profile.email);
+                avatarView.setText(profile.displayName.substring(0, 1).toUpperCase(Locale.US));
+                planView.setText(profile.isPremium ? "Premium" : "Free");
+                booksView.setText(String.valueOf(profile.booksCount));
+                hoursView.setText(String.format(Locale.US, "%.1f", profile.totalListeningSec / 3600f));
+            }
 
-        String uid = auth.getCurrentUser().getUid();
-        FirebaseFirestore.getInstance()
-                .collection("users")
-                .document(uid)
-                .get()
-                .addOnSuccessListener(snapshot -> {
-                    if (!snapshot.exists()) {
-                        Log.d(FIRESTORE_TEST_TAG, "PROFILE_NOT_FOUND uid=" + uid);
-                        emailView.setText("No profile document");
-                        planView.setText("Free");
-                        return;
-                    }
-
-                    String displayName = snapshot.getString("displayName");
-                    String email = snapshot.getString("email");
-                    Boolean isPremium = snapshot.getBoolean("isPremium");
-
-                    if (!TextUtils.isEmpty(displayName)) {
-                        nameView.setText(displayName);
-                        avatarView.setText(displayName.substring(0, 1).toUpperCase(Locale.US));
-                    }
-                    if (!TextUtils.isEmpty(email)) {
-                        emailView.setText(email);
-                    }
-                    planView.setText(Boolean.TRUE.equals(isPremium) ? "Premium" : "Free");
-                })
-                .addOnFailureListener(error -> {
-                    Log.e(FIRESTORE_TEST_TAG, "PROFILE_READ_FAIL uid=" + uid, error);
-                    emailView.setText("Profile load failed");
-                });
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PROFILE_READ_FAIL uid=" + activeUid, error);
+                emailView.setText("Profile load failed");
+            }
+        }));
     }
 
     private void showDetail() {
@@ -402,6 +426,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openFullPlayer() {
+        openFullPlayer(selectedBookId);
+    }
+
+    private void openFullPlayer(String bookId) {
+        selectedBookId = bookId;
+        ensureAuthenticated(() -> userLibraryService.markOpened(activeUid, selectedBookId, getCurrentChapterId(), playerPositionSeconds));
         navigator.navigateTo(Screen.FULL_PLAYER);
     }
 
@@ -418,6 +448,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnFullPlayerChapter).setOnClickListener(v -> showToast("Chapter list selected"));
         findViewById(R.id.fullPlayerProgress).setOnTouchListener((view, event) -> handleProgressTouch(view, event));
         updateFullPlayerUi();
+        loadPlayerQueue();
     }
 
     private void showBackgroundPopup() {
@@ -437,8 +468,9 @@ public class MainActivity extends AppCompatActivity {
             int width = view.getWidth();
             if (width > 0) {
                 float fraction = Math.max(0f, Math.min(1f, event.getX() / width));
-                playerPositionSeconds = clampPlayerPosition((int) (PLAYER_DURATION_SECONDS * fraction));
+                playerPositionSeconds = clampPlayerPosition((int) (getCurrentDurationSec() * fraction));
                 updateFullPlayerUi();
+                savePlaybackState();
             }
             if (event.getAction() == MotionEvent.ACTION_UP) {
                 view.performClick();
@@ -455,11 +487,12 @@ public class MainActivity extends AppCompatActivity {
         } else if (currentScreen == Screen.BACKGROUND_POPUP) {
             updateBackgroundPopupUi();
         }
+        savePlaybackState();
         showToast("Position " + formatTime(playerPositionSeconds));
     }
 
     private int clampPlayerPosition(int seconds) {
-        return Math.max(0, Math.min(PLAYER_DURATION_SECONDS, seconds));
+        return Math.max(0, Math.min(getCurrentDurationSec(), seconds));
     }
 
     private void togglePlayback() {
@@ -469,12 +502,14 @@ public class MainActivity extends AppCompatActivity {
         } else if (currentScreen == Screen.BACKGROUND_POPUP) {
             updateBackgroundPopupUi();
         }
+        savePlaybackState();
         showToast(isPlaying ? "Playing" : "Paused");
     }
 
     private void cyclePlaybackSpeed() {
         playbackSpeedIndex = (playbackSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
         updateFullPlayerUi();
+        savePlaybackState();
         showToast("Speed " + PLAYBACK_SPEEDS[playbackSpeedIndex]);
     }
 
@@ -488,18 +523,19 @@ public class MainActivity extends AppCompatActivity {
         View fill = findViewById(R.id.fullPlayerProgressFill);
         View thumb = findViewById(R.id.fullPlayerProgressThumb);
 
+        ((TextView) findViewById(R.id.fullPlayerBookTitle)).setText(selectedBookTitle);
         elapsed.setText(formatTime(playerPositionSeconds));
-        duration.setText(formatTime(PLAYER_DURATION_SECONDS));
+        duration.setText(formatTime(getCurrentDurationSec()));
         playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
         speed.setText(PLAYBACK_SPEEDS[playbackSpeedIndex]);
-        chapter.setText(isPlaying ? "Chapter 2: Background Audio" : "Chapter 2: Paused");
+        chapter.setText(getCurrentChapterTitle());
 
         progress.post(() -> {
             int progressWidth = progress.getWidth();
             if (progressWidth <= 0) {
                 return;
             }
-            float fraction = (float) playerPositionSeconds / PLAYER_DURATION_SECONDS;
+            float fraction = getCurrentDurationSec() == 0 ? 0f : (float) playerPositionSeconds / getCurrentDurationSec();
             int fillWidth = Math.round(progressWidth * fraction);
 
             ViewGroup.LayoutParams fillParams = fill.getLayoutParams();
@@ -515,9 +551,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateBackgroundPopupUi() {
         TextView playPause = findViewById(R.id.btnBackgroundPlayPause);
+        TextView title = findViewById(R.id.backgroundAudioTitle);
         TextView chapter = findViewById(R.id.backgroundAudioChapter);
         playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
-        chapter.setText(isPlaying ? "Chapter 2 - Playing" : "Chapter 2 - Paused");
+        title.setText(selectedBookTitle);
+        chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
     }
 
     private String formatTime(int totalSeconds) {
@@ -547,10 +585,31 @@ public class MainActivity extends AppCompatActivity {
         setLibraryFilterState(R.id.filterListening, selectedLibraryFilter == 1);
         setLibraryFilterState(R.id.filterDownloaded, selectedLibraryFilter == 2);
         setLibraryFilterState(R.id.filterCompleted, selectedLibraryFilter == 3);
-        setLibraryItemVisibility(R.id.libraryItemAndroid, selectedLibraryFilter == 0 || selectedLibraryFilter == 1);
-        setLibraryItemVisibility(R.id.libraryItemCleanCode, !cleanCodeRemoved && (selectedLibraryFilter == 0 || selectedLibraryFilter == 1 || selectedLibraryFilter == 3));
-        setLibraryItemVisibility(R.id.libraryItemAiLecture, selectedLibraryFilter == 0);
-        setLibraryItemVisibility(R.id.libraryItemEnglish, selectedLibraryFilter == 0 || selectedLibraryFilter == 2);
+        setLibraryItemVisibility(R.id.libraryItemAndroid, shouldShowLibraryBook(BOOK_ANDROID));
+        setLibraryItemVisibility(R.id.libraryItemCleanCode, shouldShowLibraryBook(BOOK_CLEAN_CODE));
+        setLibraryItemVisibility(R.id.libraryItemAiLecture, shouldShowLibraryBook(BOOK_AI));
+        setLibraryItemVisibility(R.id.libraryItemEnglish, shouldShowLibraryBook(BOOK_ENGLISH));
+    }
+
+    private boolean shouldShowLibraryBook(String bookId) {
+        if (!libraryBookIds.contains(bookId)) {
+            return false;
+        }
+        String status = libraryStatuses.get(bookId);
+        if (status == null) {
+            status = LibraryEntry.STATUS_SAVED;
+        }
+        switch (selectedLibraryFilter) {
+            case 1:
+                return LibraryEntry.STATUS_SAVED.equals(status);
+            case 2:
+                return LibraryEntry.STATUS_DOWNLOADING.equals(status);
+            case 3:
+                return LibraryEntry.STATUS_FINISHED.equals(status);
+            case 0:
+            default:
+                return true;
+        }
     }
 
     private void setLibraryFilterState(int viewId, boolean selected) {
@@ -573,6 +632,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void showToast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private void openBookDetail(String bookId) {
+        selectedBookId = bookId;
+        ensureAuthenticated(() -> userLibraryService.markOpened(activeUid, selectedBookId, getCurrentChapterId(), playerPositionSeconds));
+        navigator.navigateTo(Screen.DETAIL);
     }
 
     private void prepareLightWindow() {
@@ -602,68 +667,11 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Login failed. Please check your input.", Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(this, "Login success", Toast.LENGTH_SHORT).show();
-
-        // Many Firestore default rules require request.auth != null. Ensure we're signed in (anonymous)
-        // before doing the write/read smoke-test.
-        ensureFirebaseSignedIn(() -> {
-            // Firebase Analytics smoke-test (verify in DebugView + Logcat).
-            String email = emailInput.getText().toString().trim();
-            FirebaseAnalytics analytics = FirebaseAnalytics.getInstance(this);
-            Bundle loginEvent = new Bundle();
-            loginEvent.putString("email_hint", TextUtils.isEmpty(email) ? "empty" : "present");
-            analytics.logEvent("login_smoke_test", loginEvent);
-            analytics.setUserProperty("has_email", TextUtils.isEmpty(email) ? "false" : "true");
-
-            runFirestoreConnectionTest(email);
+        String email = emailInput.getText().toString().trim();
+        ensureAuthenticated(email, () -> {
+            Toast.makeText(this, "Login success", Toast.LENGTH_SHORT).show();
             navigator.resetTo(Screen.HOME);
         });
-    }
-
-    private void ensureFirebaseSignedIn(Runnable onReady) {
-        FirebaseAuth auth = FirebaseAuth.getInstance();
-        if (auth.getCurrentUser() != null) {
-            onReady.run();
-            return;
-        }
-        auth.signInAnonymously()
-                .addOnSuccessListener(result -> {
-                    Log.d(FIRESTORE_TEST_TAG, "AUTH_OK uid=" + auth.getCurrentUser().getUid());
-                    onReady.run();
-                })
-                .addOnFailureListener(error -> {
-                    Log.e(FIRESTORE_TEST_TAG, "AUTH_FAIL", error);
-                    Toast.makeText(this, "Firebase Auth failed (enable Anonymous in Firebase Console)", Toast.LENGTH_LONG).show();
-                });
-    }
-
-    private void runFirestoreConnectionTest(String email) {
-        String normalizedEmail = TextUtils.isEmpty(email) ? "demo" : email.toLowerCase(Locale.US);
-        String docId = "test_" + normalizedEmail.replaceAll("[^a-z0-9]", "_");
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("ping", "ok");
-        data.put("email", normalizedEmail);
-        data.put("time", Timestamp.now());
-
-        FirebaseFirestore db = FirebaseFirestore.getInstance();
-        db.collection("users").document(docId).set(data)
-                .addOnSuccessListener(unused -> {
-                    Log.d(FIRESTORE_TEST_TAG, "WRITE_OK docId=" + docId);
-                    db.collection("users").document(docId).get()
-                            .addOnSuccessListener(snapshot -> {
-                                Log.d(FIRESTORE_TEST_TAG, "READ_OK data=" + snapshot.getData());
-                                Toast.makeText(this, "Firebase OK (write/read success)", Toast.LENGTH_SHORT).show();
-                            })
-                            .addOnFailureListener(error -> {
-                                Log.e(FIRESTORE_TEST_TAG, "READ_FAIL", error);
-                                Toast.makeText(this, "Firebase read failed", Toast.LENGTH_SHORT).show();
-                            });
-                })
-                .addOnFailureListener(error -> {
-                    Log.e(FIRESTORE_TEST_TAG, "WRITE_FAIL", error);
-                    Toast.makeText(this, "Firebase write failed", Toast.LENGTH_SHORT).show();
-                });
     }
 
     private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput,
@@ -680,8 +688,11 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Register failed. Please check your input.", Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(this, "Register success", Toast.LENGTH_SHORT).show();
-        navigator.resetTo(Screen.HOME);
+        ensureAuthenticated(emailInput.getText().toString().trim(), () -> {
+            profileService.updatePreference(activeUid, "displayName", fullNameInput.getText().toString().trim(), new NoopFirestoreCallback<>());
+            Toast.makeText(this, "Register success", Toast.LENGTH_SHORT).show();
+            navigator.resetTo(Screen.HOME);
+        });
     }
 
     private void handleForgotPassword(EditText emailInput, TextInputLayout emailLayout) {
@@ -726,20 +737,85 @@ public class MainActivity extends AppCompatActivity {
         inputLayout.setErrorEnabled(false);
     }
 
-    private void removeLibraryItem() {
-        cleanCodeRemoved = true;
-        updateLibraryFilters();
-        showToast("Removed item");
+    private void removeLibraryItem(String bookId) {
+        ensureAuthenticated(() -> userLibraryService.removeBook(activeUid, bookId, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                libraryBookIds.remove(bookId);
+                libraryStatuses.remove(bookId);
+                profileService.updateLibraryStats(activeUid, libraryBookIds.size());
+                updateLibraryFilters();
+                showToast("Removed from library");
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "LIBRARY_REMOVE_FAIL bookId=" + bookId, error);
+                showToast("Remove failed");
+            }
+        }));
     }
 
-    private void addLibraryItem() {
-        if (!cleanCodeRemoved) {
-            showToast("Playlist created");
-            return;
-        }
-        cleanCodeRemoved = false;
-        updateLibraryFilters();
-        showToast("Added item back to playlist");
+    private void addLibraryItem(String bookId) {
+        ensureAuthenticated(() -> userLibraryService.addBook(activeUid, bookId, LibraryEntry.STATUS_SAVED, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                libraryBookIds.add(bookId);
+                libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                profileService.updateLibraryStats(activeUid, libraryBookIds.size());
+                updateLibraryFilters();
+                showToast("Added to library");
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "LIBRARY_ADD_FAIL bookId=" + bookId, error);
+                showToast("Add failed");
+            }
+        }));
+    }
+
+    private void showCreateAudioBookDialog() {
+        EditText titleInput = new EditText(this);
+        titleInput.setSingleLine(true);
+        titleInput.setHint("Audio book title");
+        titleInput.setPadding(32, 16, 32, 16);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Create Audio Book")
+                .setView(titleInput)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", null)
+                .create();
+        dialog.setOnShowListener(unused -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String title = titleInput.getText().toString().trim();
+            if (TextUtils.isEmpty(title)) {
+                titleInput.setError("Title is required");
+                return;
+            }
+            dialog.dismiss();
+            createCustomAudioBook(title);
+        }));
+        dialog.show();
+    }
+
+    private void createCustomAudioBook(String title) {
+        ensureAuthenticated(() -> userLibraryService.addCustomBook(activeUid, title, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String bookId) {
+                libraryBookIds.add(bookId);
+                libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                profileService.updateLibraryStats(activeUid, libraryBookIds.size());
+                updateLibraryFilters();
+                showToast("Created: " + title);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "CUSTOM_AUDIOBOOK_CREATE_FAIL title=" + title, error);
+                showToast("Create failed");
+            }
+        }));
     }
 
     private void sortLibraryItems() {
@@ -818,6 +894,263 @@ public class MainActivity extends AppCompatActivity {
             searchInput.setSelection(topic.length());
         }
         runSearch();
+    }
+
+    private void ensureAuthenticated(Runnable onReady) {
+        ensureAuthenticated("", onReady);
+    }
+
+    private void ensureAuthenticated(String email, Runnable onReady) {
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase(Locale.US);
+        String desiredUid = TextUtils.isEmpty(normalizedEmail) ? activeUid : buildUserDocumentId(normalizedEmail);
+        if (TextUtils.isEmpty(desiredUid)) {
+            desiredUid = DEFAULT_DEMO_UID;
+        }
+        boolean accountChanged = !desiredUid.equals(activeUid);
+        activeUid = desiredUid;
+        if (!TextUtils.isEmpty(normalizedEmail)) {
+            activeAccountEmail = normalizedEmail;
+        }
+        if (accountChanged) {
+            libraryBookIds.clear();
+            libraryStatuses.clear();
+        }
+
+        Runnable readyAfterProfile = () -> profileService.ensureProfile(activeUid, activeAccountEmail, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                if (onReady != null) {
+                    onReady.run();
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PROFILE_ENSURE_FAIL uid=" + activeUid, error);
+                if (onReady != null) {
+                    onReady.run();
+                }
+            }
+        });
+
+        if (!TextUtils.isEmpty(authService.currentUid())) {
+            readyAfterProfile.run();
+            return;
+        }
+
+        authService.ensureSignedIn(new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String uid) {
+                Log.d(FIRESTORE_TAG, "AUTH_OK firebaseUid=" + uid + " appUser=" + activeUid);
+                readyAfterProfile.run();
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "AUTH_FAIL", error);
+                showToast("Firebase Auth failed");
+            }
+        });
+    }
+
+    private String buildUserDocumentId(String email) {
+        String localPart = email;
+        int atIndex = email.indexOf('@');
+        if (atIndex > 0) {
+            localPart = email.substring(0, atIndex);
+        }
+        String normalized = localPart
+                .toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "");
+        if ("testuser".equals(normalized)) {
+            return DEFAULT_DEMO_UID;
+        }
+        return TextUtils.isEmpty(normalized) ? DEFAULT_DEMO_UID : normalized;
+    }
+
+    private void loadLibraryFromFirestore() {
+        ensureAuthenticated(() -> userLibraryService.listLibrary(activeUid, new FirestoreCallback<List<LibraryEntry>>() {
+            @Override
+            public void onSuccess(List<LibraryEntry> entries) {
+                libraryBookIds.clear();
+                libraryStatuses.clear();
+                for (LibraryEntry entry : entries) {
+                    libraryBookIds.add(entry.bookId);
+                    libraryStatuses.put(entry.bookId, entry.status);
+                }
+                profileService.updateLibraryStats(activeUid, entries.size());
+                updateLibraryFilters();
+                if (entries.isEmpty()) {
+                    showToast("Library is empty. Tap + to save a book.");
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "LIBRARY_LOAD_FAIL uid=" + activeUid, error);
+                showToast("Library load failed");
+            }
+        }));
+    }
+
+    private void loadPlayerQueue() {
+        bookCatalogService.fetchBookTitle(selectedBookId, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String title) {
+                selectedBookTitle = title;
+                if (currentScreen == Screen.FULL_PLAYER) {
+                    updateFullPlayerUi();
+                } else if (currentScreen == Screen.BACKGROUND_POPUP) {
+                    updateBackgroundPopupUi();
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "BOOK_TITLE_LOAD_FAIL bookId=" + selectedBookId, error);
+            }
+        });
+
+        chapterService.fetchChapters(selectedBookId, new FirestoreCallback<List<Chapter>>() {
+            @Override
+            public void onSuccess(List<Chapter> chapters) {
+                playerQueue.clear();
+                playerQueue.addAll(chapters);
+                if (currentChapterIndex >= playerQueue.size()) {
+                    currentChapterIndex = 0;
+                }
+                playerPositionSeconds = clampPlayerPosition(playerPositionSeconds);
+                loadSavedPlaybackState();
+                if (currentScreen == Screen.FULL_PLAYER) {
+                    updateFullPlayerUi();
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "CHAPTER_LOAD_FAIL bookId=" + selectedBookId, error);
+                showToast("Chapter load failed");
+            }
+        });
+    }
+
+    private void loadSavedPlaybackState() {
+        ensureAuthenticated(() -> playbackStateService.loadCurrent(activeUid, new FirestoreCallback<PlayerState>() {
+            @Override
+            public void onSuccess(PlayerState state) {
+                if (state == null || !selectedBookId.equals(state.bookId)) {
+                    savePlaybackState();
+                    return;
+                }
+                selectedBookTitle = TextUtils.isEmpty(state.bookTitle) ? selectedBookTitle : state.bookTitle;
+                currentChapterIndex = findChapterIndex(state.chapterId);
+                playerPositionSeconds = clampPlayerPosition(state.positionSec);
+                playbackSpeedIndex = findPlaybackSpeedIndex(state.speed);
+                isPlaying = state.isPlaying;
+                if (currentScreen == Screen.FULL_PLAYER) {
+                    updateFullPlayerUi();
+                } else if (currentScreen == Screen.BACKGROUND_POPUP) {
+                    updateBackgroundPopupUi();
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PLAYBACK_LOAD_FAIL uid=" + activeUid, error);
+            }
+        }));
+    }
+
+    private void savePlaybackState() {
+        ensureAuthenticated(() -> {
+            PlayerState state = new PlayerState(
+                    selectedBookId,
+                    selectedBookTitle,
+                    getCurrentChapterId(),
+                    getCurrentChapterTitle(),
+                    playerPositionSeconds,
+                    getCurrentDurationSec(),
+                    PLAYBACK_SPEEDS[playbackSpeedIndex],
+                    isPlaying
+            );
+            playbackStateService.saveCurrent(activeUid, state);
+            userLibraryService.markOpened(activeUid, selectedBookId, state.chapterId, state.positionSec);
+        });
+    }
+
+    private void updateProfilePreference(String key, Object value, String toastMessage) {
+        ensureAuthenticated(() -> profileService.updatePreference(activeUid, key, value, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void ignored) {
+                showToast(toastMessage);
+                if (currentScreen == Screen.PROFILE) {
+                    bindProfileFromFirebase();
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PROFILE_UPDATE_FAIL key=" + key, error);
+                showToast("Profile update failed");
+            }
+        }));
+    }
+
+    private int getCurrentDurationSec() {
+        Chapter chapter = getCurrentChapter();
+        return chapter == null || chapter.durationSec <= 0 ? DEFAULT_PLAYER_DURATION_SECONDS : chapter.durationSec;
+    }
+
+    private String getCurrentChapterId() {
+        Chapter chapter = getCurrentChapter();
+        return chapter == null ? "" : chapter.id;
+    }
+
+    private String getCurrentChapterTitle() {
+        Chapter chapter = getCurrentChapter();
+        if (chapter == null) {
+            return isPlaying ? "Loading chapters" : "Paused";
+        }
+        return "Chapter " + chapter.order + ": " + chapter.title;
+    }
+
+    private Chapter getCurrentChapter() {
+        if (playerQueue.isEmpty() || currentChapterIndex < 0 || currentChapterIndex >= playerQueue.size()) {
+            return null;
+        }
+        return playerQueue.get(currentChapterIndex);
+    }
+
+    private int findChapterIndex(String chapterId) {
+        if (TextUtils.isEmpty(chapterId)) {
+            return 0;
+        }
+        for (int i = 0; i < playerQueue.size(); i++) {
+            if (chapterId.equals(playerQueue.get(i).id)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private int findPlaybackSpeedIndex(String speed) {
+        for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+            if (PLAYBACK_SPEEDS[i].equals(speed)) {
+                return i;
+            }
+        }
+        return 1;
+    }
+
+    private static final class NoopFirestoreCallback<T> implements FirestoreCallback<T> {
+        @Override
+        public void onSuccess(T value) {
+        }
+
+        @Override
+        public void onError(Exception error) {
+        }
     }
 
     private final class DebounceSearchWatcher implements TextWatcher {
