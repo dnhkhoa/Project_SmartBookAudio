@@ -1,15 +1,58 @@
 {
-  "uid": "test_user_001",
-  "profile": {
-    "displayName": "SmartBook Demo Listener",
-    "email": "testuser@gmail.com",
-    "isPremium": false,
-    "defaultVoice": "Natural voice",
-    "appLanguage": "English",
-    "storageMode": "Cloud sync",
-    "booksCount": 4,
-    "totalListeningSec": 9120
-  },
+  "users": [
+    {
+      "uid": "test_user_001",
+      "profile": {
+        "displayName": "SmartBook Demo Listener",
+        "email": "testuser@gmail.com",
+        "isPremium": false,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "English",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    },
+    {
+      "uid": "nguyen_tien_cuong",
+      "profile": {
+        "displayName": "Nguyen Tien Cuong",
+        "email": "nguyen.tien.cuong@student.hcmute.edu.vn",
+        "isPremium": false,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "Vietnamese",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    },
+    {
+      "uid": "truong_dinh_khoa",
+      "profile": {
+        "displayName": "Truong Dinh Khoa",
+        "email": "truong.dinh.khoa@student.hcmute.edu.vn",
+        "isPremium": true,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "Vietnamese",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    },
+    {
+      "uid": "vo_huu_loc",
+      "profile": {
+        "displayName": "Vo Huu Loc",
+        "email": "vo.huu.loc@student.hcmute.edu.vn",
+        "isPremium": true,
+        "defaultVoice": "Natural voice",
+        "appLanguage": "Vietnamese",
+        "storageMode": "Cloud sync",
+        "booksCount": 4,
+        "totalListeningSec": 9120
+      }
+    }
+  ],
   "library": [
     {
       "bookId": "atomic-habits",

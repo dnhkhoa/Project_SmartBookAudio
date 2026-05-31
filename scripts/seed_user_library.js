@@ -110,47 +110,56 @@ async function main() {
   const seedPath = process.argv[3] || DEFAULT_SEED_PATH;
   const serviceAccount = readJson(keyPath);
   const seed = readJson(seedPath);
-  const uid = process.argv[4] || seed.uid;
+  const requestedUid = process.argv[4];
   const now = new Date();
   const token = await getAccessToken(serviceAccount);
+  const users = seed.users || [{ uid: seed.uid, profile: seed.profile }];
+  const targets = requestedUid ? users.filter((user) => user.uid === requestedUid) : users;
 
-  await patchDocument({
-    token,
-    projectId: serviceAccount.project_id,
-    documentPath: `users/${uid}`,
-    data: {
-      ...seed.profile,
-      booksCount: seed.library.length,
-      updatedAt: now
-    }
-  });
+  if (!targets.length) {
+    throw new Error(`No seed user found for uid ${requestedUid}`);
+  }
 
-  for (const entry of seed.library) {
+  for (const user of targets) {
+    const uid = user.uid;
     await patchDocument({
       token,
       projectId: serviceAccount.project_id,
-      documentPath: `users/${uid}/library/${entry.bookId}`,
+      documentPath: `users/${uid}`,
       data: {
-        status: entry.status,
-        addedAt: now,
-        lastOpenedAt: now,
-        lastChapterId: entry.lastChapterId,
-        lastPositionSec: entry.lastPositionSec
+        ...user.profile,
+        booksCount: seed.library.length,
+        updatedAt: now
       }
     });
-  }
 
-  await patchDocument({
-    token,
-    projectId: serviceAccount.project_id,
-    documentPath: `users/${uid}/playback/current`,
-    data: {
-      ...seed.playback,
-      updatedAt: now
+    await patchDocument({
+      token,
+      projectId: serviceAccount.project_id,
+      documentPath: `users/${uid}/playback/current`,
+      data: {
+        ...seed.playback,
+        updatedAt: now
+      }
+    });
+
+    for (const entry of seed.library) {
+      await patchDocument({
+        token,
+        projectId: serviceAccount.project_id,
+        documentPath: `users/${uid}/library/${entry.bookId}`,
+        data: {
+          status: entry.status,
+          addedAt: now,
+          lastOpenedAt: now,
+          lastChapterId: entry.lastChapterId,
+          lastPositionSec: entry.lastPositionSec
+        }
+      });
     }
-  });
 
-  console.log(`Seeded library/playback data for users/${uid}`);
+    console.log(`Seeded library/playback data for users/${uid}`);
+  }
 }
 
 main().catch((error) => {
