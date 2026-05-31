@@ -779,14 +779,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCreateAudioBookDialog() {
+        int horizontalPadding = Math.round(24 * getResources().getDisplayMetrics().density);
+        int verticalPadding = Math.round(8 * getResources().getDisplayMetrics().density);
+        LinearLayout inputContainer = new LinearLayout(this);
+        inputContainer.setOrientation(LinearLayout.VERTICAL);
+        inputContainer.setPadding(horizontalPadding, verticalPadding, horizontalPadding, 0);
+
         EditText titleInput = new EditText(this);
         titleInput.setSingleLine(true);
         titleInput.setHint("Audio book title");
-        titleInput.setPadding(32, 16, 32, 16);
+        titleInput.setSelectAllOnFocus(false);
+        titleInput.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        inputContainer.addView(titleInput);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Create Audio Book")
-                .setView(titleInput)
+                .setView(inputContainer)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", null)
                 .create();
