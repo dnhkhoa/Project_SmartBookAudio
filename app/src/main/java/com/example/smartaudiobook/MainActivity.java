@@ -342,8 +342,8 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.btnLibrarySort).setOnClickListener(v -> sortLibraryItems());
-        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> addLibraryItem(BOOK_CLEAN_CODE));
-        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> addLibraryItem(BOOK_CLEAN_CODE));
+        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> showCreateAudioBookDialog());
+        findViewById(R.id.libraryCreateCard).setOnClickListener(v -> showCreateAudioBookDialog());
         findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> openBookDetail(BOOK_ANDROID));
         findViewById(R.id.libraryItemAndroidPlay).setOnClickListener(v -> openFullPlayer(BOOK_ANDROID));
         findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> openBookDetail(BOOK_CLEAN_CODE));
@@ -771,6 +771,49 @@ public class MainActivity extends AppCompatActivity {
             public void onError(Exception error) {
                 Log.e(FIRESTORE_TAG, "LIBRARY_ADD_FAIL bookId=" + bookId, error);
                 showToast("Add failed");
+            }
+        }));
+    }
+
+    private void showCreateAudioBookDialog() {
+        EditText titleInput = new EditText(this);
+        titleInput.setSingleLine(true);
+        titleInput.setHint("Audio book title");
+        titleInput.setPadding(32, 16, 32, 16);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Create Audio Book")
+                .setView(titleInput)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", null)
+                .create();
+        dialog.setOnShowListener(unused -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String title = titleInput.getText().toString().trim();
+            if (TextUtils.isEmpty(title)) {
+                titleInput.setError("Title is required");
+                return;
+            }
+            dialog.dismiss();
+            createCustomAudioBook(title);
+        }));
+        dialog.show();
+    }
+
+    private void createCustomAudioBook(String title) {
+        ensureAuthenticated(() -> userLibraryService.addCustomBook(activeUid, title, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String bookId) {
+                libraryBookIds.add(bookId);
+                libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                profileService.updateLibraryStats(activeUid, libraryBookIds.size());
+                updateLibraryFilters();
+                showToast("Created: " + title);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "CUSTOM_AUDIOBOOK_CREATE_FAIL title=" + title, error);
+                showToast("Create failed");
             }
         }));
     }

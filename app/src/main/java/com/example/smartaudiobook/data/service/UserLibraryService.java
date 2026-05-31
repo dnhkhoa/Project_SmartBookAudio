@@ -9,6 +9,7 @@ import com.google.firebase.firestore.SetOptions;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class UserLibraryService {
@@ -43,6 +44,25 @@ public class UserLibraryService {
                 .document(bookId)
                 .set(data, SetOptions.merge())
                 .addOnSuccessListener(unused -> callback.onSuccess(null))
+                .addOnFailureListener(callback::onError);
+    }
+
+    public void addCustomBook(String uid, String title, FirestoreCallback<String> callback) {
+        String bookId = buildCustomBookId(title);
+        Map<String, Object> data = new HashMap<>();
+        data.put("title", title);
+        data.put("status", LibraryEntry.STATUS_SAVED);
+        data.put("addedAt", FieldValue.serverTimestamp());
+        data.put("lastOpenedAt", FieldValue.serverTimestamp());
+        data.put("lastChapterId", "");
+        data.put("lastPositionSec", 0);
+        data.put("source", "manual");
+        db.collection("users")
+                .document(uid)
+                .collection("library")
+                .document(bookId)
+                .set(data, SetOptions.merge())
+                .addOnSuccessListener(unused -> callback.onSuccess(bookId))
                 .addOnFailureListener(callback::onError);
     }
 
@@ -82,5 +102,17 @@ public class UserLibraryService {
                 .collection("library")
                 .document(bookId)
                 .set(data, SetOptions.merge());
+    }
+
+    private String buildCustomBookId(String title) {
+        String normalized = title
+                .trim()
+                .toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (normalized.isEmpty()) {
+            normalized = "untitled";
+        }
+        return "custom-" + normalized + "-" + System.currentTimeMillis();
     }
 }
