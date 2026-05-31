@@ -116,7 +116,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
-        navigator.resetTo(Screen.HOME);
+        navigator.resetTo(Screen.LOGIN);
 
     }
 
@@ -371,7 +371,10 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.menuDataStorage).setOnClickListener(v ->
                 updateProfilePreference("storageMode", "Offline first", "Storage preference updated"));
         findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
-        findViewById(R.id.btnSignOut).setOnClickListener(v -> navigator.resetTo(Screen.LOGIN));
+        findViewById(R.id.btnSignOut).setOnClickListener(v -> {
+            clearActiveAccount();
+            navigator.resetTo(Screen.LOGIN);
+        });
 
         bindProfileFromFirebase();
     }
@@ -967,6 +970,20 @@ public class MainActivity extends AppCompatActivity {
             return DEFAULT_DEMO_UID;
         }
         return TextUtils.isEmpty(normalized) ? DEFAULT_DEMO_UID : normalized;
+    }
+
+    private void clearActiveAccount() {
+        activeUid = "";
+        activeAccountEmail = "";
+        libraryBookIds.clear();
+        libraryStatuses.clear();
+        playerQueue.clear();
+        selectedBookId = DEFAULT_BOOK_ID;
+        selectedBookTitle = DEFAULT_BOOK_TITLE;
+        currentChapterIndex = 0;
+        playerPositionSeconds = 85;
+        playbackSpeedIndex = 1;
+        isPlaying = true;
     }
 
     private void loadLibraryFromFirestore() {
