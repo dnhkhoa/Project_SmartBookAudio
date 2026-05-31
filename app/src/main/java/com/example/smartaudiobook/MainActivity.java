@@ -1,5 +1,4 @@
 package com.example.smartaudiobook;
-
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -7,6 +6,7 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,9 +23,15 @@ import java.util.Locale;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import com.google.firebase.Timestamp;
+import com.google.firebase.analytics.FirebaseAnalytics;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.regex.Pattern;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PLAYER_DURATION_SECONDS = 18 * 60 + 30;
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
+    private static final String FIRESTORE_TEST_TAG = "FS_TEST";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
@@ -328,6 +335,55 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.menuDataStorage).setOnClickListener(v -> showProfileAction(getString(R.string.profile_data_storage)));
         findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
         findViewById(R.id.btnSignOut).setOnClickListener(v -> navigator.resetTo(Screen.LOGIN));
+
+        bindProfileFromFirebase();
+    }
+
+    private void bindProfileFromFirebase() {
+        TextView nameView = findViewById(R.id.profileName);
+        TextView avatarView = findViewById(R.id.profileAvatar);
+        TextView emailView = findViewById(R.id.profileEmail);
+        TextView planView = findViewById(R.id.profilePlanValue);
+
+        FirebaseAuth auth = FirebaseAuth.getInstance();
+        if (auth.getCurrentUser() == null) {
+            nameView.setText("Guest");
+            emailView.setText("Not signed in");
+            avatarView.setText("G");
+            planView.setText("Free");
+            return;
+        }
+
+        String uid = auth.getCurrentUser().getUid();
+        FirebaseFirestore.getInstance()
+                .collection("users")
+                .document(uid)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (!snapshot.exists()) {
+                        Log.d(FIRESTORE_TEST_TAG, "PROFILE_NOT_FOUND uid=" + uid);
+                        emailView.setText("No profile document");
+                        planView.setText("Free");
+                        return;
+                    }
+
+                    String displayName = snapshot.getString("displayName");
+                    String email = snapshot.getString("email");
+                    Boolean isPremium = snapshot.getBoolean("isPremium");
+
+                    if (!TextUtils.isEmpty(displayName)) {
+                        nameView.setText(displayName);
+                        avatarView.setText(displayName.substring(0, 1).toUpperCase(Locale.US));
+                    }
+                    if (!TextUtils.isEmpty(email)) {
+                        emailView.setText(email);
+                    }
+                    planView.setText(Boolean.TRUE.equals(isPremium) ? "Premium" : "Free");
+                })
+                .addOnFailureListener(error -> {
+                    Log.e(FIRESTORE_TEST_TAG, "PROFILE_READ_FAIL uid=" + uid, error);
+                    emailView.setText("Profile load failed");
+                });
     }
 
     private void showDetail() {
@@ -547,7 +603,67 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Toast.makeText(this, "Login success", Toast.LENGTH_SHORT).show();
-        navigator.resetTo(Screen.HOME);
+
+        // Many Firestore default rules require request.auth != null. Ensure we're signed in (anonymous)
+        // before doing the write/read smoke-test.
+        ensureFirebaseSignedIn(() -> {
+            // Firebase Analytics smoke-test (verify in DebugView + Logcat).
+            String email = emailInput.getText().toString().trim();
+            FirebaseAnalytics analytics = FirebaseAnalytics.getInstance(this);
+            Bundle loginEvent = new Bundle();
+            loginEvent.putString("email_hint", TextUtils.isEmpty(email) ? "empty" : "present");
+            analytics.logEvent("login_smoke_test", loginEvent);
+            analytics.setUserProperty("has_email", TextUtils.isEmpty(email) ? "false" : "true");
+
+            runFirestoreConnectionTest(email);
+            navigator.resetTo(Screen.HOME);
+        });
+    }
+
+    private void ensureFirebaseSignedIn(Runnable onReady) {
+        FirebaseAuth auth = FirebaseAuth.getInstance();
+        if (auth.getCurrentUser() != null) {
+            onReady.run();
+            return;
+        }
+        auth.signInAnonymously()
+                .addOnSuccessListener(result -> {
+                    Log.d(FIRESTORE_TEST_TAG, "AUTH_OK uid=" + auth.getCurrentUser().getUid());
+                    onReady.run();
+                })
+                .addOnFailureListener(error -> {
+                    Log.e(FIRESTORE_TEST_TAG, "AUTH_FAIL", error);
+                    Toast.makeText(this, "Firebase Auth failed (enable Anonymous in Firebase Console)", Toast.LENGTH_LONG).show();
+                });
+    }
+
+    private void runFirestoreConnectionTest(String email) {
+        String normalizedEmail = TextUtils.isEmpty(email) ? "demo" : email.toLowerCase(Locale.US);
+        String docId = "test_" + normalizedEmail.replaceAll("[^a-z0-9]", "_");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("ping", "ok");
+        data.put("email", normalizedEmail);
+        data.put("time", Timestamp.now());
+
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
+        db.collection("users").document(docId).set(data)
+                .addOnSuccessListener(unused -> {
+                    Log.d(FIRESTORE_TEST_TAG, "WRITE_OK docId=" + docId);
+                    db.collection("users").document(docId).get()
+                            .addOnSuccessListener(snapshot -> {
+                                Log.d(FIRESTORE_TEST_TAG, "READ_OK data=" + snapshot.getData());
+                                Toast.makeText(this, "Firebase OK (write/read success)", Toast.LENGTH_SHORT).show();
+                            })
+                            .addOnFailureListener(error -> {
+                                Log.e(FIRESTORE_TEST_TAG, "READ_FAIL", error);
+                                Toast.makeText(this, "Firebase read failed", Toast.LENGTH_SHORT).show();
+                            });
+                })
+                .addOnFailureListener(error -> {
+                    Log.e(FIRESTORE_TEST_TAG, "WRITE_FAIL", error);
+                    Toast.makeText(this, "Firebase write failed", Toast.LENGTH_SHORT).show();
+                });
     }
 
     private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput,
