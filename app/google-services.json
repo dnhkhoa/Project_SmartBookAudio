@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "193373191668",
+    "project_id": "smartbookaudio",
+    "storage_bucket": "smartbookaudio.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:193373191668:android:275f0d7207cbe598218da1",
+        "android_client_info": {
+          "package_name": "com.example.smartaudiobook"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA3HiHdoW0ND13YeWLYUMrH_npOmXyQUK4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
