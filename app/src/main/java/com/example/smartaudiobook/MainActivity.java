@@ -1,10 +1,13 @@
 package com.example.smartaudiobook;
 
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Log;
@@ -99,6 +102,7 @@ public class MainActivity extends AppCompatActivity {
     private String activeAccountEmail = "";
     private String selectedBookId = DEFAULT_BOOK_ID;
     private String selectedBookTitle = DEFAULT_BOOK_TITLE;
+    private String selectedSourceUrl = "";
     private final List<Chapter> playerQueue = new ArrayList<>();
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
@@ -434,6 +438,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void openFullPlayer(String bookId) {
         selectedBookId = bookId;
+        selectedSourceUrl = "";
         ensureAuthenticated(() -> userLibraryService.markOpened(activeUid, selectedBookId, getCurrentChapterId(), playerPositionSeconds));
         navigator.navigateTo(Screen.FULL_PLAYER);
     }
@@ -444,7 +449,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_full_player);
         findViewById(R.id.btnBackFullPlayer).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnFullPlayerRewind).setOnClickListener(v -> seekPlayerBy(-15));
-        findViewById(R.id.btnFullPlayerPlayPause).setOnClickListener(v -> togglePlayback());
+        findViewById(R.id.btnFullPlayerPlayPause).setOnClickListener(v -> handlePlayPause());
         findViewById(R.id.btnFullPlayerForward).setOnClickListener(v -> seekPlayerBy(15));
         findViewById(R.id.btnFullPlayerSpeed).setOnClickListener(v -> cyclePlaybackSpeed());
         findViewById(R.id.btnOpenBackgroundPopup).setOnClickListener(v -> navigator.navigateTo(Screen.BACKGROUND_POPUP));
@@ -461,7 +466,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnReturnToPlayer).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.backgroundNotification).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnBackgroundPrevious).setOnClickListener(v -> seekPlayerBy(-15));
-        findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> togglePlayback());
+        findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> handlePlayPause());
         findViewById(R.id.btnBackgroundNext).setOnClickListener(v -> seekPlayerBy(15));
         updateBackgroundPopupUi();
     }
@@ -507,6 +512,32 @@ public class MainActivity extends AppCompatActivity {
         }
         savePlaybackState();
         showToast(isPlaying ? "Playing" : "Paused");
+    }
+
+    private void handlePlayPause() {
+        if (!TextUtils.isEmpty(selectedSourceUrl)) {
+            openAudioSource(selectedSourceUrl);
+            isPlaying = true;
+            if (currentScreen == Screen.FULL_PLAYER) {
+                updateFullPlayerUi();
+            } else if (currentScreen == Screen.BACKGROUND_POPUP) {
+                updateBackgroundPopupUi();
+            }
+            savePlaybackState();
+            return;
+        }
+        togglePlayback();
+    }
+
+    private void openAudioSource(String sourceUrl) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(sourceUrl));
+            startActivity(intent);
+            showToast("Opening audio source");
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_SOURCE_OPEN_FAIL url=" + sourceUrl, error);
+            showToast("Cannot open audio source");
+        }
     }
 
     private void cyclePlaybackSpeed() {
@@ -788,12 +819,27 @@ public class MainActivity extends AppCompatActivity {
         EditText titleInput = new EditText(this);
         titleInput.setSingleLine(true);
         titleInput.setHint("Audio book title");
+        titleInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
         titleInput.setSelectAllOnFocus(false);
         titleInput.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
         inputContainer.addView(titleInput);
+
+        EditText sourceInput = new EditText(this);
+        sourceInput.setSingleLine(true);
+        sourceInput.setHint("Audio URL");
+        sourceInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        sourceInput.setSelectAllOnFocus(false);
+        LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        int sourceTopMargin = Math.round(12 * getResources().getDisplayMetrics().density);
+        sourceParams.topMargin = sourceTopMargin;
+        sourceInput.setLayoutParams(sourceParams);
+        inputContainer.addView(sourceInput);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Create Audio Book")
@@ -807,16 +853,40 @@ public class MainActivity extends AppCompatActivity {
                 titleInput.setError("Title is required");
                 return;
             }
+            String sourceUrl = sourceInput.getText().toString().trim();
+            if (TextUtils.isEmpty(sourceUrl)) {
+                sourceInput.setError("Audio URL is required");
+                return;
+            }
+            if (!isValidSourceUrl(sourceUrl)) {
+                sourceInput.setError("Use http:// or https:// URL");
+                return;
+            }
             dialog.dismiss();
-            createCustomAudioBook(title);
+            createCustomAudioBook(title, sourceUrl);
         }));
         dialog.show();
     }
 
-    private void createCustomAudioBook(String title) {
-        ensureAuthenticated(() -> userLibraryService.addCustomBook(activeUid, title, new FirestoreCallback<String>() {
+    private void createCustomAudioBook(String title, String sourceUrl) {
+        ensureAuthenticated(() -> bookCatalogService.createUserBook(activeUid, title, sourceUrl, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String bookId) {
+                saveCreatedBookToLibrary(bookId, title);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "CUSTOM_AUDIOBOOK_CREATE_FAIL title=" + title, error);
+                showToast("Create failed");
+            }
+        }));
+    }
+
+    private void saveCreatedBookToLibrary(String bookId, String title) {
+        userLibraryService.addBook(activeUid, bookId, LibraryEntry.STATUS_SAVED, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
                 libraryBookIds.add(bookId);
                 libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
                 profileService.updateLibraryStats(activeUid, libraryBookIds.size());
@@ -826,10 +896,14 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception error) {
-                Log.e(FIRESTORE_TAG, "CUSTOM_AUDIOBOOK_CREATE_FAIL title=" + title, error);
-                showToast("Create failed");
+                Log.e(FIRESTORE_TAG, "CUSTOM_AUDIOBOOK_LIBRARY_ADD_FAIL bookId=" + bookId, error);
+                showToast("Book created, but library add failed");
             }
-        }));
+        });
+    }
+
+    private boolean isValidSourceUrl(String sourceUrl) {
+        return sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://");
     }
 
     private void sortLibraryItems() {
@@ -1040,6 +1114,19 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        bookCatalogService.fetchBookSourceUrl(selectedBookId, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String sourceUrl) {
+                selectedSourceUrl = sourceUrl;
+            }
+
+            @Override
+            public void onError(Exception error) {
+                selectedSourceUrl = "";
+                Log.e(FIRESTORE_TAG, "BOOK_SOURCE_LOAD_FAIL bookId=" + selectedBookId, error);
+            }
+        });
+
         chapterService.fetchChapters(selectedBookId, new FirestoreCallback<List<Chapter>>() {
             @Override
             public void onSuccess(List<Chapter> chapters) {
@@ -1047,6 +1134,10 @@ public class MainActivity extends AppCompatActivity {
                 playerQueue.addAll(chapters);
                 if (currentChapterIndex >= playerQueue.size()) {
                     currentChapterIndex = 0;
+                }
+                Chapter chapter = getCurrentChapter();
+                if (TextUtils.isEmpty(selectedSourceUrl) && chapter != null && !TextUtils.isEmpty(chapter.audioUrl)) {
+                    selectedSourceUrl = chapter.audioUrl;
                 }
                 playerPositionSeconds = clampPlayerPosition(playerPositionSeconds);
                 loadSavedPlaybackState();
