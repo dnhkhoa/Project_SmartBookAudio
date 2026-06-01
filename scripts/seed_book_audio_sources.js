@@ -89,7 +89,7 @@ async function main() {
 
   for (const source of seed.sources) {
     const data = {
-      sourceType: "youtube",
+      sourceType: "direct-audio",
       sourceTitle: source.sourceTitle,
       sourceUrl: source.sourceUrl,
       audioUrl: source.sourceUrl,

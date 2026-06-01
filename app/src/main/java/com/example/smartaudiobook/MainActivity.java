@@ -1,7 +1,9 @@
 package com.example.smartaudiobook;
 
-import android.content.Intent;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
+import android.media.PlaybackParams;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -82,6 +84,15 @@ public class MainActivity extends AppCompatActivity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
+    private final Runnable playerProgressRunnable = new Runnable() {
+        @Override
+        public void run() {
+            syncPositionFromMediaPlayer();
+            if (isPlaying) {
+                handler.postDelayed(this, 1000);
+            }
+        }
+    };
     private final Navigator navigator = new Navigator();
     private final AuthService authService = new AuthService();
     private final BookCatalogService bookCatalogService = new BookCatalogService();
@@ -97,13 +108,17 @@ public class MainActivity extends AppCompatActivity {
     private int playerPositionSeconds = 85;
     private int playbackSpeedIndex = 1;
     private int selectedLibraryFilter = 0;
-    private boolean isPlaying = true;
+    private boolean isPlaying = false;
+    private boolean isPlayerPreparing = false;
     private boolean librarySortAscending = true;
     private String activeUid = "";
     private String activeAccountEmail = "";
     private String selectedBookId = DEFAULT_BOOK_ID;
     private String selectedBookTitle = DEFAULT_BOOK_TITLE;
     private String selectedSourceUrl = "";
+    private String preparedSourceUrl = "";
+    private int mediaDurationSeconds = 0;
+    private MediaPlayer mediaPlayer;
     private final List<Chapter> playerQueue = new ArrayList<>();
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
@@ -129,6 +144,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        releaseMediaPlayer();
         super.onDestroy();
     }
 
@@ -443,6 +459,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openFullPlayer(String bookId, String sourceUrl) {
+        if (!selectedBookId.equals(bookId)) {
+            releaseMediaPlayer();
+            mediaDurationSeconds = 0;
+            playerPositionSeconds = 0;
+        }
         selectedBookId = bookId;
         selectedSourceUrl = sourceUrl == null ? "" : sourceUrl;
         ensureAuthenticated(() -> userLibraryService.markOpened(activeUid, selectedBookId, getCurrentChapterId(), playerPositionSeconds));
@@ -483,6 +504,7 @@ public class MainActivity extends AppCompatActivity {
             if (width > 0) {
                 float fraction = Math.max(0f, Math.min(1f, event.getX() / width));
                 playerPositionSeconds = clampPlayerPosition((int) (getCurrentDurationSec() * fraction));
+                seekMediaPlayerTo(playerPositionSeconds);
                 updateFullPlayerUi();
                 savePlaybackState();
             }
@@ -496,6 +518,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void seekPlayerBy(int deltaSeconds) {
         playerPositionSeconds = clampPlayerPosition(playerPositionSeconds + deltaSeconds);
+        seekMediaPlayerTo(playerPositionSeconds);
         if (currentScreen == Screen.FULL_PLAYER) {
             updateFullPlayerUi();
         } else if (currentScreen == Screen.BACKGROUND_POPUP) {
@@ -509,45 +532,172 @@ public class MainActivity extends AppCompatActivity {
         return Math.max(0, Math.min(getCurrentDurationSec(), seconds));
     }
 
-    private void togglePlayback() {
-        isPlaying = !isPlaying;
+    private void handlePlayPause() {
+        if (TextUtils.isEmpty(selectedSourceUrl)) {
+            showToast("Audio URL is missing");
+            return;
+        }
+        if (isPlayerPreparing) {
+            showToast("Audio is loading");
+            return;
+        }
+        if (mediaPlayer == null || !selectedSourceUrl.equals(preparedSourceUrl)) {
+            prepareAndPlayAudio(selectedSourceUrl);
+            return;
+        }
+        if (mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            isPlaying = false;
+            handler.removeCallbacks(playerProgressRunnable);
+            syncPlayerUi();
+            savePlaybackState();
+            showToast("Paused");
+            return;
+        }
+        startPreparedAudio();
+    }
+
+    private void prepareAndPlayAudio(String sourceUrl) {
+        releaseMediaPlayer();
+        isPlayerPreparing = true;
+        syncPlayerUi();
+        showToast("Loading audio");
+        try {
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .build());
+            mediaPlayer.setDataSource(this, Uri.parse(sourceUrl));
+            mediaPlayer.setOnPreparedListener(player -> {
+                isPlayerPreparing = false;
+                preparedSourceUrl = sourceUrl;
+                mediaDurationSeconds = Math.max(0, player.getDuration() / 1000);
+                seekMediaPlayerTo(playerPositionSeconds);
+                applyPlaybackSpeed();
+                startPreparedAudio();
+            });
+            mediaPlayer.setOnCompletionListener(player -> {
+                isPlaying = false;
+                handler.removeCallbacks(playerProgressRunnable);
+                playerPositionSeconds = clampPlayerPosition(getCurrentDurationSec());
+                syncPlayerUi();
+                savePlaybackState();
+                showToast("Finished");
+            });
+            mediaPlayer.setOnErrorListener((player, what, extra) -> {
+                Log.e(FIRESTORE_TAG, "AUDIO_PLAYBACK_FAIL what=" + what + " extra=" + extra + " url=" + sourceUrl);
+                releaseMediaPlayer();
+                syncPlayerUi();
+                showToast("Audio playback failed");
+                return true;
+            });
+            mediaPlayer.prepareAsync();
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_PREPARE_FAIL url=" + sourceUrl, error);
+            releaseMediaPlayer();
+            syncPlayerUi();
+            showToast("Cannot load audio");
+        }
+    }
+
+    private void startPreparedAudio() {
+        if (mediaPlayer == null) {
+            return;
+        }
+        try {
+            applyPlaybackSpeed();
+            mediaPlayer.start();
+            isPlaying = true;
+            syncPositionFromMediaPlayer();
+            handler.removeCallbacks(playerProgressRunnable);
+            handler.postDelayed(playerProgressRunnable, 1000);
+            syncPlayerUi();
+            savePlaybackState();
+            showToast("Playing");
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_START_FAIL url=" + selectedSourceUrl, error);
+            releaseMediaPlayer();
+            syncPlayerUi();
+            showToast("Cannot play audio");
+        }
+    }
+
+    private void seekMediaPlayerTo(int seconds) {
+        if (mediaPlayer == null || isPlayerPreparing) {
+            return;
+        }
+        try {
+            mediaPlayer.seekTo(clampPlayerPosition(seconds) * 1000);
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_SEEK_FAIL", error);
+        }
+    }
+
+    private void syncPositionFromMediaPlayer() {
+        if (mediaPlayer == null || isPlayerPreparing) {
+            return;
+        }
+        try {
+            playerPositionSeconds = clampPlayerPosition(mediaPlayer.getCurrentPosition() / 1000);
+            int duration = mediaPlayer.getDuration() / 1000;
+            if (duration > 0) {
+                mediaDurationSeconds = duration;
+            }
+            syncPlayerUi();
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_POSITION_SYNC_FAIL", error);
+        }
+    }
+
+    private void syncPlayerUi() {
         if (currentScreen == Screen.FULL_PLAYER) {
             updateFullPlayerUi();
         } else if (currentScreen == Screen.BACKGROUND_POPUP) {
             updateBackgroundPopupUi();
         }
-        savePlaybackState();
-        showToast(isPlaying ? "Playing" : "Paused");
     }
 
-    private void handlePlayPause() {
-        if (!TextUtils.isEmpty(selectedSourceUrl)) {
-            openAudioSource(selectedSourceUrl);
-            isPlaying = true;
-            if (currentScreen == Screen.FULL_PLAYER) {
-                updateFullPlayerUi();
-            } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-                updateBackgroundPopupUi();
-            }
-            savePlaybackState();
+    private void applyPlaybackSpeed() {
+        if (mediaPlayer == null || isPlayerPreparing) {
             return;
         }
-        togglePlayback();
+        try {
+            PlaybackParams params = mediaPlayer.getPlaybackParams();
+            params.setSpeed(getPlaybackSpeedValue());
+            mediaPlayer.setPlaybackParams(params);
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_SPEED_FAIL speed=" + PLAYBACK_SPEEDS[playbackSpeedIndex], error);
+        }
     }
 
-    private void openAudioSource(String sourceUrl) {
+    private float getPlaybackSpeedValue() {
+        String speed = PLAYBACK_SPEEDS[playbackSpeedIndex].replace("x", "");
         try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(sourceUrl));
-            startActivity(intent);
-            showToast("Opening audio source");
-        } catch (Exception error) {
-            Log.e(FIRESTORE_TAG, "AUDIO_SOURCE_OPEN_FAIL url=" + sourceUrl, error);
-            showToast("Cannot open audio source");
+            return Float.parseFloat(speed);
+        } catch (NumberFormatException error) {
+            return 1.0f;
+        }
+    }
+
+    private void releaseMediaPlayer() {
+        handler.removeCallbacks(playerProgressRunnable);
+        isPlaying = false;
+        isPlayerPreparing = false;
+        preparedSourceUrl = "";
+        if (mediaPlayer != null) {
+            try {
+                mediaPlayer.release();
+            } catch (Exception error) {
+                Log.e(FIRESTORE_TAG, "AUDIO_RELEASE_FAIL", error);
+            }
+            mediaPlayer = null;
         }
     }
 
     private void cyclePlaybackSpeed() {
         playbackSpeedIndex = (playbackSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
+        applyPlaybackSpeed();
         updateFullPlayerUi();
         savePlaybackState();
         showToast("Speed " + PLAYBACK_SPEEDS[playbackSpeedIndex]);
@@ -566,7 +716,7 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.fullPlayerBookTitle)).setText(selectedBookTitle);
         elapsed.setText(formatTime(playerPositionSeconds));
         duration.setText(formatTime(getCurrentDurationSec()));
-        playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
+        playPause.setText(isPlayerPreparing ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         speed.setText(PLAYBACK_SPEEDS[playbackSpeedIndex]);
         chapter.setText(getCurrentChapterTitle());
 
@@ -593,7 +743,7 @@ public class MainActivity extends AppCompatActivity {
         TextView playPause = findViewById(R.id.btnBackgroundPlayPause);
         TextView title = findViewById(R.id.backgroundAudioTitle);
         TextView chapter = findViewById(R.id.backgroundAudioChapter);
-        playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
+        playPause.setText(isPlayerPreparing ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         title.setText(selectedBookTitle);
         chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
     }
@@ -979,7 +1129,7 @@ public class MainActivity extends AppCompatActivity {
 
         EditText sourceInput = new EditText(this);
         sourceInput.setSingleLine(true);
-        sourceInput.setHint("Audio URL");
+        sourceInput.setHint("Direct audio URL (.mp3, .m4a, .m3u8)");
         sourceInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         sourceInput.setSelectAllOnFocus(false);
         LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(
@@ -1009,7 +1159,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             if (!isValidSourceUrl(sourceUrl)) {
-                sourceInput.setError("Use http:// or https:// URL");
+                sourceInput.setError("Use a direct audio URL, not YouTube");
                 return;
             }
             dialog.dismiss();
@@ -1053,7 +1203,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean isValidSourceUrl(String sourceUrl) {
-        return sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://");
+        String normalized = sourceUrl.toLowerCase(Locale.US);
+        boolean webUrl = normalized.startsWith("http://") || normalized.startsWith("https://");
+        boolean blockedPageUrl = normalized.contains("youtube.com")
+                || normalized.contains("youtu.be")
+                || normalized.contains("music.youtube.com");
+        boolean directAudioUrl = normalized.contains(".mp3")
+                || normalized.contains(".m4a")
+                || normalized.contains(".aac")
+                || normalized.contains(".wav")
+                || normalized.contains(".ogg")
+                || normalized.contains(".opus")
+                || normalized.contains(".m3u8");
+        return webUrl && !blockedPageUrl && directAudioUrl;
     }
 
     private void sortLibraryItems() {
@@ -1220,7 +1382,8 @@ public class MainActivity extends AppCompatActivity {
         currentChapterIndex = 0;
         playerPositionSeconds = 85;
         playbackSpeedIndex = 1;
-        isPlaying = true;
+        mediaDurationSeconds = 0;
+        releaseMediaPlayer();
     }
 
     private void loadLibraryFromFirestore() {
@@ -1345,7 +1508,7 @@ public class MainActivity extends AppCompatActivity {
                 currentChapterIndex = findChapterIndex(state.chapterId);
                 playerPositionSeconds = clampPlayerPosition(state.positionSec);
                 playbackSpeedIndex = findPlaybackSpeedIndex(state.speed);
-                isPlaying = state.isPlaying;
+                isPlaying = mediaPlayer != null && mediaPlayer.isPlaying();
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
                 } else if (currentScreen == Screen.BACKGROUND_POPUP) {
@@ -1396,6 +1559,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int getCurrentDurationSec() {
+        if (mediaDurationSeconds > 0) {
+            return mediaDurationSeconds;
+        }
         Chapter chapter = getCurrentChapter();
         return chapter == null || chapter.durationSec <= 0 ? DEFAULT_PLAYER_DURATION_SECONDS : chapter.durationSec;
     }
