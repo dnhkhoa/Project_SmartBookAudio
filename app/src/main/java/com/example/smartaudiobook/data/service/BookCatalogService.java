@@ -6,13 +6,32 @@ import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.firestore.WriteBatch;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BookCatalogService {
     private final FirebaseFirestore db = FirebaseFirestore.getInstance();
+
+    public static class BookSummary {
+        public final String id;
+        public final String title;
+        public final String author;
+        public final String sourceUrl;
+
+        public BookSummary(String id, String title, String author, String sourceUrl) {
+            this.id = id;
+            this.title = title;
+            this.author = author;
+            this.sourceUrl = sourceUrl;
+        }
+    }
 
     public void fetchBookTitle(String bookId, FirestoreCallback<String> callback) {
         db.collection("books").document(bookId).get()
@@ -33,6 +52,46 @@ public class BookCatalogService {
                     callback.onSuccess(sourceUrl == null ? "" : sourceUrl);
                 })
                 .addOnFailureListener(callback::onError);
+    }
+
+    public void fetchBookSummaries(List<String> bookIds, FirestoreCallback<List<BookSummary>> callback) {
+        if (bookIds.isEmpty()) {
+            callback.onSuccess(Collections.emptyList());
+            return;
+        }
+
+        List<BookSummary> summaries = new ArrayList<>();
+        AtomicInteger pending = new AtomicInteger(bookIds.size());
+        AtomicBoolean completed = new AtomicBoolean(false);
+
+        for (String bookId : bookIds) {
+            db.collection("books").document(bookId).get()
+                    .addOnSuccessListener(snapshot -> {
+                        if (completed.get()) {
+                            return;
+                        }
+                        String title = snapshot.getString("title");
+                        String author = snapshot.getString("author");
+                        String sourceUrl = snapshot.getString("sourceUrl");
+                        if (sourceUrl == null || sourceUrl.trim().isEmpty()) {
+                            sourceUrl = snapshot.getString("audioUrl");
+                        }
+                        summaries.add(new BookSummary(
+                                bookId,
+                                title == null || title.trim().isEmpty() ? bookId : title,
+                                author == null || author.trim().isEmpty() ? "User Author" : author,
+                                sourceUrl == null ? "" : sourceUrl
+                        ));
+                        if (pending.decrementAndGet() == 0) {
+                            callback.onSuccess(summaries);
+                        }
+                    })
+                    .addOnFailureListener(error -> {
+                        if (completed.compareAndSet(false, true)) {
+                            callback.onError(error);
+                        }
+                    });
+        }
     }
 
     public void createUserBook(String authorUid, String title, String sourceUrl, FirestoreCallback<String> callback) {

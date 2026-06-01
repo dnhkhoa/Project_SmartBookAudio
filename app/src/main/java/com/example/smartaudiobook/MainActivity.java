@@ -78,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String BOOK_CLEAN_CODE = "clean-code-principles";
     private static final String BOOK_AI = "ai-for-everyone";
     private static final String BOOK_ENGLISH = "the-little-prince";
+    private static final String DYNAMIC_LIBRARY_ITEM_TAG = "dynamic_library_item";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
@@ -107,6 +108,7 @@ public class MainActivity extends AppCompatActivity {
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
     private final Map<String, String> libraryStatuses = new HashMap<>();
+    private final Map<String, View> dynamicLibraryViews = new HashMap<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -437,8 +439,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openFullPlayer(String bookId) {
+        openFullPlayer(bookId, "");
+    }
+
+    private void openFullPlayer(String bookId, String sourceUrl) {
         selectedBookId = bookId;
-        selectedSourceUrl = "";
+        selectedSourceUrl = sourceUrl == null ? "" : sourceUrl;
         ensureAuthenticated(() -> userLibraryService.markOpened(activeUid, selectedBookId, getCurrentChapterId(), playerPositionSeconds));
         navigator.navigateTo(Screen.FULL_PLAYER);
     }
@@ -623,6 +629,9 @@ public class MainActivity extends AppCompatActivity {
         setLibraryItemVisibility(R.id.libraryItemCleanCode, shouldShowLibraryBook(BOOK_CLEAN_CODE));
         setLibraryItemVisibility(R.id.libraryItemAiLecture, shouldShowLibraryBook(BOOK_AI));
         setLibraryItemVisibility(R.id.libraryItemEnglish, shouldShowLibraryBook(BOOK_ENGLISH));
+        for (Map.Entry<String, View> entry : dynamicLibraryViews.entrySet()) {
+            entry.getValue().setVisibility(shouldShowLibraryBook(entry.getKey()) ? View.VISIBLE : View.GONE);
+        }
     }
 
     private boolean shouldShowLibraryBook(String bookId) {
@@ -654,6 +663,143 @@ public class MainActivity extends AppCompatActivity {
 
     private void setLibraryItemVisibility(int viewId, boolean visible) {
         findViewById(viewId).setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean isHardcodedLibraryBook(String bookId) {
+        return BOOK_ANDROID.equals(bookId)
+                || BOOK_CLEAN_CODE.equals(bookId)
+                || BOOK_AI.equals(bookId)
+                || BOOK_ENGLISH.equals(bookId);
+    }
+
+    private void renderDynamicLibraryItems(List<BookCatalogService.BookSummary> books) {
+        clearDynamicLibraryItems();
+        LinearLayout content = findViewById(R.id.libraryContent);
+        View createCard = findViewById(R.id.libraryCreateCard);
+        int insertIndex = content.indexOfChild(createCard);
+        if (insertIndex < 0) {
+            insertIndex = content.getChildCount();
+        }
+
+        for (BookCatalogService.BookSummary book : books) {
+            View item = createDynamicLibraryItem(book);
+            dynamicLibraryViews.put(book.id, item);
+            content.addView(item, insertIndex++);
+        }
+        updateLibraryFilters();
+    }
+
+    private void clearDynamicLibraryItems() {
+        LinearLayout content = findViewById(R.id.libraryContent);
+        for (View item : dynamicLibraryViews.values()) {
+            content.removeView(item);
+        }
+        dynamicLibraryViews.clear();
+    }
+
+    private View createDynamicLibraryItem(BookCatalogService.BookSummary book) {
+        LinearLayout item = new LinearLayout(this);
+        item.setTag(DYNAMIC_LIBRARY_ITEM_TAG);
+        item.setOrientation(LinearLayout.HORIZONTAL);
+        item.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        item.setBackgroundResource(R.drawable.bg_library_card);
+        item.setElevation(dp(1));
+        item.setPadding(dp(14), 0, dp(10), 0);
+        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(84)
+        );
+        itemParams.topMargin = dp(16);
+        item.setLayoutParams(itemParams);
+
+        View cover = new View(this);
+        cover.setBackgroundResource(pickLibraryCover(book.id));
+        item.addView(cover, new LinearLayout.LayoutParams(dp(58), dp(60)));
+
+        LinearLayout textColumn = new LinearLayout(this);
+        textColumn.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams columnParams = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        columnParams.leftMargin = dp(14);
+        item.addView(textColumn, columnParams);
+
+        TextView title = new TextView(this);
+        title.setText(book.title);
+        title.setTextColor(getColor(R.color.text_dark));
+        title.setTextSize(15);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        textColumn.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        TextView meta = new TextView(this);
+        meta.setText(book.author + " - URL source");
+        meta.setTextColor(getColor(R.color.text_gray));
+        meta.setTextSize(13);
+        meta.setSingleLine(true);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        metaParams.topMargin = dp(5);
+        textColumn.addView(meta, metaParams);
+
+        TextView chip = new TextView(this);
+        chip.setText(TextUtils.isEmpty(book.sourceUrl) ? "NO URL" : getString(R.string.play_label));
+        chip.setTextColor(getColor(R.color.primary_blue));
+        chip.setTextSize(9);
+        chip.setTypeface(chip.getTypeface(), android.graphics.Typeface.BOLD);
+        chip.setGravity(android.view.Gravity.CENTER);
+        chip.setBackgroundResource(R.drawable.bg_chip_soft);
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(dp(70), dp(22));
+        chipParams.topMargin = dp(5);
+        textColumn.addView(chip, chipParams);
+
+        TextView playButton = new TextView(this);
+        playButton.setText(">");
+        playButton.setTextColor(Color.WHITE);
+        playButton.setTextSize(18);
+        playButton.setTypeface(playButton.getTypeface(), android.graphics.Typeface.BOLD);
+        playButton.setGravity(android.view.Gravity.CENTER);
+        playButton.setBackgroundResource(R.drawable.bg_circle_teal);
+        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+        item.addView(playButton, playParams);
+
+        View.OnClickListener openPlayer = v -> openFullPlayer(book.id, book.sourceUrl);
+        item.setOnClickListener(openPlayer);
+        playButton.setOnClickListener(openPlayer);
+        item.setOnLongClickListener(v -> {
+            removeLibraryItem(book.id);
+            return true;
+        });
+
+        return item;
+    }
+
+    private int pickLibraryCover(String bookId) {
+        int index = Math.abs(bookId.hashCode()) % 4;
+        switch (index) {
+            case 0:
+                return R.drawable.bg_library_cover_blue;
+            case 1:
+                return R.drawable.bg_library_cover_teal;
+            case 2:
+                return R.drawable.bg_library_cover_purple;
+            case 3:
+            default:
+                return R.drawable.bg_library_cover_orange;
+        }
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void showProfileAction(String title) {
@@ -777,6 +923,10 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(Void value) {
                 libraryBookIds.remove(bookId);
                 libraryStatuses.remove(bookId);
+                View dynamicView = dynamicLibraryViews.remove(bookId);
+                if (dynamicView != null && currentScreen == Screen.LIBRARY) {
+                    ((LinearLayout) findViewById(R.id.libraryContent)).removeView(dynamicView);
+                }
                 profileService.updateLibraryStats(activeUid, libraryBookIds.size());
                 updateLibraryFilters();
                 showToast("Removed from library");
@@ -890,7 +1040,7 @@ public class MainActivity extends AppCompatActivity {
                 libraryBookIds.add(bookId);
                 libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
                 profileService.updateLibraryStats(activeUid, libraryBookIds.size());
-                updateLibraryFilters();
+                loadLibraryFromFirestore();
                 showToast("Created: " + title);
             }
 
@@ -1062,9 +1212,11 @@ public class MainActivity extends AppCompatActivity {
         activeAccountEmail = "";
         libraryBookIds.clear();
         libraryStatuses.clear();
+        dynamicLibraryViews.clear();
         playerQueue.clear();
         selectedBookId = DEFAULT_BOOK_ID;
         selectedBookTitle = DEFAULT_BOOK_TITLE;
+        selectedSourceUrl = "";
         currentChapterIndex = 0;
         playerPositionSeconds = 85;
         playbackSpeedIndex = 1;
@@ -1082,6 +1234,7 @@ public class MainActivity extends AppCompatActivity {
                     libraryStatuses.put(entry.bookId, entry.status);
                 }
                 profileService.updateLibraryStats(activeUid, entries.size());
+                loadDynamicLibraryBooks(entries);
                 updateLibraryFilters();
                 if (entries.isEmpty()) {
                     showToast("Library is empty. Tap + to save a book.");
@@ -1094,6 +1247,32 @@ public class MainActivity extends AppCompatActivity {
                 showToast("Library load failed");
             }
         }));
+    }
+
+    private void loadDynamicLibraryBooks(List<LibraryEntry> entries) {
+        List<String> dynamicBookIds = new ArrayList<>();
+        for (LibraryEntry entry : entries) {
+            if (!isHardcodedLibraryBook(entry.bookId)) {
+                dynamicBookIds.add(entry.bookId);
+            }
+        }
+        bookCatalogService.fetchBookSummaries(dynamicBookIds, new FirestoreCallback<List<BookCatalogService.BookSummary>>() {
+            @Override
+            public void onSuccess(List<BookCatalogService.BookSummary> books) {
+                if (currentScreen == Screen.LIBRARY) {
+                    renderDynamicLibraryItems(books);
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "DYNAMIC_LIBRARY_LOAD_FAIL uid=" + activeUid, error);
+                if (currentScreen == Screen.LIBRARY) {
+                    clearDynamicLibraryItems();
+                    updateLibraryFilters();
+                }
+            }
+        });
     }
 
     private void loadPlayerQueue() {
