@@ -54,6 +54,44 @@ public class BookCatalogService {
                 .addOnFailureListener(callback::onError);
     }
 
+    public void fetchPlayableAudioUrl(String bookId, FirestoreCallback<String> callback) {
+        db.collection("books").document(bookId).get()
+                .addOnSuccessListener(snapshot -> {
+                    String sourceUrl = snapshot.getString("sourceUrl");
+                    if (sourceUrl == null || sourceUrl.trim().isEmpty()) {
+                        sourceUrl = snapshot.getString("audioUrl");
+                    }
+                    if (sourceUrl != null && !sourceUrl.trim().isEmpty()) {
+                        callback.onSuccess(sourceUrl);
+                        return;
+                    }
+                    fetchFirstChapterAudioUrl(bookId, callback);
+                })
+                .addOnFailureListener(error -> fetchFirstChapterAudioUrl(bookId, callback));
+    }
+
+    private void fetchFirstChapterAudioUrl(String bookId, FirestoreCallback<String> callback) {
+        db.collection("books")
+                .document(bookId)
+                .collection("chapters")
+                .orderBy("order")
+                .limit(1)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (snapshot.isEmpty()) {
+                        callback.onSuccess("");
+                        return;
+                    }
+                    com.google.firebase.firestore.DocumentSnapshot chapter = snapshot.getDocuments().get(0);
+                    String audioUrl = chapter.getString("audioUrl");
+                    if (audioUrl == null || audioUrl.trim().isEmpty()) {
+                        audioUrl = chapter.getString("sourceUrl");
+                    }
+                    callback.onSuccess(audioUrl == null ? "" : audioUrl);
+                })
+                .addOnFailureListener(callback::onError);
+    }
+
     public void fetchBookSummaries(List<String> bookIds, FirestoreCallback<List<BookSummary>> callback) {
         if (bookIds.isEmpty()) {
             callback.onSuccess(Collections.emptyList());

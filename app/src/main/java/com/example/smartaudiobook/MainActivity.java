@@ -81,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String BOOK_AI = "ai-for-everyone";
     private static final String BOOK_ENGLISH = "the-little-prince";
     private static final String DYNAMIC_LIBRARY_ITEM_TAG = "dynamic_library_item";
+    private static final String DEFAULT_PLAYABLE_AUDIO_URL = "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
@@ -110,6 +111,7 @@ public class MainActivity extends AppCompatActivity {
     private int selectedLibraryFilter = 0;
     private boolean isPlaying = false;
     private boolean isPlayerPreparing = false;
+    private boolean isSourceUrlLoading = false;
     private boolean librarySortAscending = true;
     private String activeUid = "";
     private String activeAccountEmail = "";
@@ -533,16 +535,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handlePlayPause() {
-        if (TextUtils.isEmpty(selectedSourceUrl)) {
-            showToast("Audio URL is missing");
+        String playableUrl = getLoadedPlayableSourceUrl();
+        if (TextUtils.isEmpty(playableUrl)) {
+            resolveSourceUrlAndPlay();
             return;
         }
         if (isPlayerPreparing) {
             showToast("Audio is loading");
             return;
         }
-        if (mediaPlayer == null || !selectedSourceUrl.equals(preparedSourceUrl)) {
-            prepareAndPlayAudio(selectedSourceUrl);
+        selectedSourceUrl = playableUrl;
+        if (mediaPlayer == null || !playableUrl.equals(preparedSourceUrl)) {
+            prepareAndPlayAudio(playableUrl);
             return;
         }
         if (mediaPlayer.isPlaying()) {
@@ -557,7 +561,58 @@ public class MainActivity extends AppCompatActivity {
         startPreparedAudio();
     }
 
+    private String getLoadedPlayableSourceUrl() {
+        if (isPlayableAudioUrl(selectedSourceUrl)) {
+            return selectedSourceUrl;
+        }
+        Chapter chapter = getCurrentChapter();
+        if (chapter != null && isPlayableAudioUrl(chapter.audioUrl)) {
+            return chapter.audioUrl;
+        }
+        return "";
+    }
+
+    private void resolveSourceUrlAndPlay() {
+        if (isSourceUrlLoading) {
+            showToast("Audio is loading");
+            return;
+        }
+        isSourceUrlLoading = true;
+        syncPlayerUi();
+        showToast("Loading audio");
+        String resolvingBookId = selectedBookId;
+        bookCatalogService.fetchPlayableAudioUrl(resolvingBookId, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String sourceUrl) {
+                if (!resolvingBookId.equals(selectedBookId)) {
+                    return;
+                }
+                isSourceUrlLoading = false;
+                selectedSourceUrl = isPlayableAudioUrl(sourceUrl) ? sourceUrl : DEFAULT_PLAYABLE_AUDIO_URL;
+                syncPlayerUi();
+                prepareAndPlayAudio(selectedSourceUrl);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                if (!resolvingBookId.equals(selectedBookId)) {
+                    return;
+                }
+                Log.e(FIRESTORE_TAG, "AUDIO_SOURCE_RESOLVE_FAIL bookId=" + resolvingBookId, error);
+                isSourceUrlLoading = false;
+                selectedSourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
+                syncPlayerUi();
+                prepareAndPlayAudio(selectedSourceUrl);
+            }
+        });
+    }
+
     private void prepareAndPlayAudio(String sourceUrl) {
+        if (!isPlayableAudioUrl(sourceUrl)) {
+            sourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
+            selectedSourceUrl = sourceUrl;
+        }
+        final String playbackSourceUrl = sourceUrl;
         releaseMediaPlayer();
         isPlayerPreparing = true;
         syncPlayerUi();
@@ -568,10 +623,10 @@ public class MainActivity extends AppCompatActivity {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .build());
-            mediaPlayer.setDataSource(this, Uri.parse(sourceUrl));
+            mediaPlayer.setDataSource(this, Uri.parse(playbackSourceUrl));
             mediaPlayer.setOnPreparedListener(player -> {
                 isPlayerPreparing = false;
-                preparedSourceUrl = sourceUrl;
+                preparedSourceUrl = playbackSourceUrl;
                 mediaDurationSeconds = Math.max(0, player.getDuration() / 1000);
                 seekMediaPlayerTo(playerPositionSeconds);
                 applyPlaybackSpeed();
@@ -586,7 +641,7 @@ public class MainActivity extends AppCompatActivity {
                 showToast("Finished");
             });
             mediaPlayer.setOnErrorListener((player, what, extra) -> {
-                Log.e(FIRESTORE_TAG, "AUDIO_PLAYBACK_FAIL what=" + what + " extra=" + extra + " url=" + sourceUrl);
+                Log.e(FIRESTORE_TAG, "AUDIO_PLAYBACK_FAIL what=" + what + " extra=" + extra + " url=" + playbackSourceUrl);
                 releaseMediaPlayer();
                 syncPlayerUi();
                 showToast("Audio playback failed");
@@ -684,6 +739,7 @@ public class MainActivity extends AppCompatActivity {
         handler.removeCallbacks(playerProgressRunnable);
         isPlaying = false;
         isPlayerPreparing = false;
+        isSourceUrlLoading = false;
         preparedSourceUrl = "";
         if (mediaPlayer != null) {
             try {
@@ -716,7 +772,7 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.fullPlayerBookTitle)).setText(selectedBookTitle);
         elapsed.setText(formatTime(playerPositionSeconds));
         duration.setText(formatTime(getCurrentDurationSec()));
-        playPause.setText(isPlayerPreparing ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
+        playPause.setText(isPlayerPreparing || isSourceUrlLoading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         speed.setText(PLAYBACK_SPEEDS[playbackSpeedIndex]);
         chapter.setText(getCurrentChapterTitle());
 
@@ -743,7 +799,7 @@ public class MainActivity extends AppCompatActivity {
         TextView playPause = findViewById(R.id.btnBackgroundPlayPause);
         TextView title = findViewById(R.id.backgroundAudioTitle);
         TextView chapter = findViewById(R.id.backgroundAudioChapter);
-        playPause.setText(isPlayerPreparing ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
+        playPause.setText(isPlayerPreparing || isSourceUrlLoading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         title.setText(selectedBookTitle);
         chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
     }
@@ -1203,6 +1259,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean isValidSourceUrl(String sourceUrl) {
+        return isPlayableAudioUrl(sourceUrl);
+    }
+
+    private boolean isPlayableAudioUrl(String sourceUrl) {
+        if (TextUtils.isEmpty(sourceUrl)) {
+            return false;
+        }
         String normalized = sourceUrl.toLowerCase(Locale.US);
         boolean webUrl = normalized.startsWith("http://") || normalized.startsWith("https://");
         boolean blockedPageUrl = normalized.contains("youtube.com")
@@ -1439,9 +1502,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadPlayerQueue() {
-        bookCatalogService.fetchBookTitle(selectedBookId, new FirestoreCallback<String>() {
+        String loadingBookId = selectedBookId;
+        bookCatalogService.fetchBookTitle(loadingBookId, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String title) {
+                if (!loadingBookId.equals(selectedBookId)) {
+                    return;
+                }
                 selectedBookTitle = title;
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
@@ -1452,26 +1519,33 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception error) {
-                Log.e(FIRESTORE_TAG, "BOOK_TITLE_LOAD_FAIL bookId=" + selectedBookId, error);
+                Log.e(FIRESTORE_TAG, "BOOK_TITLE_LOAD_FAIL bookId=" + loadingBookId, error);
             }
         });
 
-        bookCatalogService.fetchBookSourceUrl(selectedBookId, new FirestoreCallback<String>() {
+        bookCatalogService.fetchBookSourceUrl(loadingBookId, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String sourceUrl) {
-                selectedSourceUrl = sourceUrl;
+                if (!loadingBookId.equals(selectedBookId)) {
+                    return;
+                }
+                if (!TextUtils.isEmpty(sourceUrl)) {
+                    selectedSourceUrl = sourceUrl;
+                }
             }
 
             @Override
             public void onError(Exception error) {
-                selectedSourceUrl = "";
-                Log.e(FIRESTORE_TAG, "BOOK_SOURCE_LOAD_FAIL bookId=" + selectedBookId, error);
+                Log.e(FIRESTORE_TAG, "BOOK_SOURCE_LOAD_FAIL bookId=" + loadingBookId, error);
             }
         });
 
-        chapterService.fetchChapters(selectedBookId, new FirestoreCallback<List<Chapter>>() {
+        chapterService.fetchChapters(loadingBookId, new FirestoreCallback<List<Chapter>>() {
             @Override
             public void onSuccess(List<Chapter> chapters) {
+                if (!loadingBookId.equals(selectedBookId)) {
+                    return;
+                }
                 playerQueue.clear();
                 playerQueue.addAll(chapters);
                 if (currentChapterIndex >= playerQueue.size()) {
@@ -1490,7 +1564,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception error) {
-                Log.e(FIRESTORE_TAG, "CHAPTER_LOAD_FAIL bookId=" + selectedBookId, error);
+                Log.e(FIRESTORE_TAG, "CHAPTER_LOAD_FAIL bookId=" + loadingBookId, error);
                 showToast("Chapter load failed");
             }
         });
