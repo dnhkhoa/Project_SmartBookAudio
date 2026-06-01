@@ -4,7 +4,6 @@ import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,6 +22,12 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,6 +36,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
@@ -84,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String DEFAULT_PLAYABLE_AUDIO_URL = "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService audioDownloadExecutor = Executors.newSingleThreadExecutor();
     private final Runnable searchRunnable = this::runDebouncedSearch;
     private final Runnable playerProgressRunnable = new Runnable() {
         @Override
@@ -112,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isPlaying = false;
     private boolean isPlayerPreparing = false;
     private boolean isSourceUrlLoading = false;
+    private boolean isAudioDownloading = false;
     private boolean librarySortAscending = true;
     private String activeUid = "";
     private String activeAccountEmail = "";
@@ -119,6 +128,7 @@ public class MainActivity extends AppCompatActivity {
     private String selectedBookTitle = DEFAULT_BOOK_TITLE;
     private String selectedSourceUrl = "";
     private String preparedSourceUrl = "";
+    private String downloadingSourceUrl = "";
     private int mediaDurationSeconds = 0;
     private MediaPlayer mediaPlayer;
     private final List<Chapter> playerQueue = new ArrayList<>();
@@ -147,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         releaseMediaPlayer();
+        audioDownloadExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -544,6 +555,10 @@ public class MainActivity extends AppCompatActivity {
             showToast("Audio is loading");
             return;
         }
+        if (isAudioDownloading) {
+            showToast("Audio is downloading");
+            return;
+        }
         selectedSourceUrl = playableUrl;
         if (mediaPlayer == null || !playableUrl.equals(preparedSourceUrl)) {
             prepareAndPlayAudio(playableUrl);
@@ -584,7 +599,9 @@ public class MainActivity extends AppCompatActivity {
         bookCatalogService.fetchPlayableAudioUrl(resolvingBookId, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String sourceUrl) {
-                if (!resolvingBookId.equals(selectedBookId)) {
+                if (!resolvingBookId.equals(selectedBookId) || !isPlayerScreen()) {
+                    isSourceUrlLoading = false;
+                    syncPlayerUi();
                     return;
                 }
                 isSourceUrlLoading = false;
@@ -595,7 +612,9 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception error) {
-                if (!resolvingBookId.equals(selectedBookId)) {
+                if (!resolvingBookId.equals(selectedBookId) || !isPlayerScreen()) {
+                    isSourceUrlLoading = false;
+                    syncPlayerUi();
                     return;
                 }
                 Log.e(FIRESTORE_TAG, "AUDIO_SOURCE_RESOLVE_FAIL bookId=" + resolvingBookId, error);
@@ -612,18 +631,68 @@ public class MainActivity extends AppCompatActivity {
             sourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
             selectedSourceUrl = sourceUrl;
         }
+        File cachedAudio = getAudioCacheFile(selectedBookId, sourceUrl);
+        if (isCachedAudioReady(cachedAudio)) {
+            prepareAndPlayCachedAudio(sourceUrl, cachedAudio);
+            return;
+        }
+        downloadAudioThenPlay(sourceUrl, cachedAudio);
+    }
+
+    private void downloadAudioThenPlay(String sourceUrl, File cacheFile) {
+        if (isAudioDownloading && sourceUrl.equals(downloadingSourceUrl)) {
+            showToast("Audio is downloading");
+            return;
+        }
+        final String downloadBookId = selectedBookId;
+        final String downloadSourceUrl = sourceUrl;
+        isAudioDownloading = true;
+        downloadingSourceUrl = downloadSourceUrl;
+        syncPlayerUi();
+        showToast("Downloading audio");
+
+        audioDownloadExecutor.execute(() -> {
+            Exception failure = null;
+            try {
+                downloadAudioToCache(downloadSourceUrl, cacheFile);
+            } catch (Exception error) {
+                failure = error;
+            }
+
+            Exception finalFailure = failure;
+            handler.post(() -> {
+                if (!downloadBookId.equals(selectedBookId) || !downloadSourceUrl.equals(downloadingSourceUrl) || !isPlayerScreen()) {
+                    isAudioDownloading = false;
+                    downloadingSourceUrl = "";
+                    syncPlayerUi();
+                    return;
+                }
+                isAudioDownloading = false;
+                downloadingSourceUrl = "";
+                syncPlayerUi();
+                if (finalFailure != null) {
+                    Log.e(FIRESTORE_TAG, "AUDIO_DOWNLOAD_FAIL url=" + downloadSourceUrl, finalFailure);
+                    showToast("Audio download failed");
+                    return;
+                }
+                prepareAndPlayCachedAudio(downloadSourceUrl, cacheFile);
+            });
+        });
+    }
+
+    private void prepareAndPlayCachedAudio(String sourceUrl, File audioFile) {
         final String playbackSourceUrl = sourceUrl;
         releaseMediaPlayer();
         isPlayerPreparing = true;
         syncPlayerUi();
-        showToast("Loading audio");
+        showToast("Loading local audio");
         try {
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .build());
-            mediaPlayer.setDataSource(this, Uri.parse(playbackSourceUrl));
+            mediaPlayer.setDataSource(audioFile.getAbsolutePath());
             mediaPlayer.setOnPreparedListener(player -> {
                 isPlayerPreparing = false;
                 preparedSourceUrl = playbackSourceUrl;
@@ -649,10 +718,95 @@ public class MainActivity extends AppCompatActivity {
             });
             mediaPlayer.prepareAsync();
         } catch (Exception error) {
-            Log.e(FIRESTORE_TAG, "AUDIO_PREPARE_FAIL url=" + sourceUrl, error);
+            Log.e(FIRESTORE_TAG, "AUDIO_PREPARE_FAIL url=" + sourceUrl + " file=" + audioFile.getAbsolutePath(), error);
             releaseMediaPlayer();
             syncPlayerUi();
             showToast("Cannot load audio");
+        }
+    }
+
+    private File getAudioCacheFile(String bookId, String sourceUrl) {
+        File audioDir = new File(getFilesDir(), "audio-cache");
+        String normalizedBookId = bookId == null ? "unknown" : bookId
+                .toLowerCase(Locale.US)
+                .replaceAll("[^a-z0-9_-]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (TextUtils.isEmpty(normalizedBookId)) {
+            normalizedBookId = "unknown";
+        }
+        String sourceHash = Integer.toHexString(sourceUrl.hashCode());
+        return new File(audioDir, normalizedBookId + "-" + sourceHash + getAudioFileExtension(sourceUrl));
+    }
+
+    private boolean isCachedAudioReady(File audioFile) {
+        return audioFile.exists() && audioFile.isFile() && audioFile.length() > 0;
+    }
+
+    private String getAudioFileExtension(String sourceUrl) {
+        String normalized = sourceUrl.toLowerCase(Locale.US);
+        int queryStart = normalized.indexOf('?');
+        if (queryStart >= 0) {
+            normalized = normalized.substring(0, queryStart);
+        }
+        String[] extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".m3u8"};
+        for (String extension : extensions) {
+            if (normalized.endsWith(extension)) {
+                return extension;
+            }
+        }
+        return ".audio";
+    }
+
+    private void downloadAudioToCache(String sourceUrl, File cacheFile) throws Exception {
+        File parent = cacheFile.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IllegalStateException("Cannot create audio cache directory");
+        }
+
+        File tempFile = new File(cacheFile.getAbsolutePath() + ".download");
+        if (tempFile.exists() && !tempFile.delete()) {
+            throw new IllegalStateException("Cannot reset partial audio download");
+        }
+
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(sourceUrl).openConnection();
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(true);
+            int responseCode = connection.getResponseCode();
+            if (responseCode < 200 || responseCode >= 300) {
+                throw new IllegalStateException("Audio download HTTP " + responseCode);
+            }
+
+            try (InputStream input = new BufferedInputStream(connection.getInputStream());
+                 FileOutputStream output = new FileOutputStream(tempFile, false)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedException("Audio download cancelled");
+                    }
+                    output.write(buffer, 0, read);
+                }
+            }
+
+            if (tempFile.length() == 0) {
+                throw new IllegalStateException("Downloaded audio file is empty");
+            }
+            if (cacheFile.exists() && !cacheFile.delete()) {
+                throw new IllegalStateException("Cannot replace cached audio");
+            }
+            if (!tempFile.renameTo(cacheFile)) {
+                throw new IllegalStateException("Cannot finalize cached audio");
+            }
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+            if (tempFile.exists() && !tempFile.equals(cacheFile)) {
+                tempFile.delete();
+            }
         }
     }
 
@@ -713,6 +867,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private boolean isPlayerScreen() {
+        return currentScreen == Screen.FULL_PLAYER || currentScreen == Screen.BACKGROUND_POPUP;
+    }
+
     private void applyPlaybackSpeed() {
         if (mediaPlayer == null || isPlayerPreparing) {
             return;
@@ -740,7 +898,9 @@ public class MainActivity extends AppCompatActivity {
         isPlaying = false;
         isPlayerPreparing = false;
         isSourceUrlLoading = false;
+        isAudioDownloading = false;
         preparedSourceUrl = "";
+        downloadingSourceUrl = "";
         if (mediaPlayer != null) {
             try {
                 mediaPlayer.release();
@@ -772,7 +932,7 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.fullPlayerBookTitle)).setText(selectedBookTitle);
         elapsed.setText(formatTime(playerPositionSeconds));
         duration.setText(formatTime(getCurrentDurationSec()));
-        playPause.setText(isPlayerPreparing || isSourceUrlLoading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
+        playPause.setText(isPlayerPreparing || isSourceUrlLoading || isAudioDownloading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         speed.setText(PLAYBACK_SPEEDS[playbackSpeedIndex]);
         chapter.setText(getCurrentChapterTitle());
 
@@ -799,7 +959,7 @@ public class MainActivity extends AppCompatActivity {
         TextView playPause = findViewById(R.id.btnBackgroundPlayPause);
         TextView title = findViewById(R.id.backgroundAudioTitle);
         TextView chapter = findViewById(R.id.backgroundAudioChapter);
-        playPause.setText(isPlayerPreparing || isSourceUrlLoading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
+        playPause.setText(isPlayerPreparing || isSourceUrlLoading || isAudioDownloading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         title.setText(selectedBookTitle);
         chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
     }
