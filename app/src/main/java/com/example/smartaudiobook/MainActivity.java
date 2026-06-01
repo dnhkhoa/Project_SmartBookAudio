@@ -654,7 +654,7 @@ public class MainActivity extends AppCompatActivity {
         audioDownloadExecutor.execute(() -> {
             Exception failure = null;
             try {
-                downloadAudioToCache(downloadSourceUrl, cacheFile);
+                downloadAudioToCacheWithRetry(downloadSourceUrl, cacheFile);
             } catch (Exception error) {
                 failure = error;
             }
@@ -757,6 +757,24 @@ public class MainActivity extends AppCompatActivity {
         return ".audio";
     }
 
+    private void downloadAudioToCacheWithRetry(String sourceUrl, File cacheFile) throws Exception {
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                downloadAudioToCache(sourceUrl, cacheFile);
+                return;
+            } catch (Exception error) {
+                lastFailure = error;
+                Log.e(FIRESTORE_TAG, "AUDIO_DOWNLOAD_ATTEMPT_FAIL attempt=" + attempt + " url=" + sourceUrl, error);
+                File partialFile = new File(cacheFile.getAbsolutePath() + ".download");
+                if (partialFile.exists()) {
+                    partialFile.delete();
+                }
+            }
+        }
+        throw lastFailure == null ? new IllegalStateException("Audio download failed") : lastFailure;
+    }
+
     private void downloadAudioToCache(String sourceUrl, File cacheFile) throws Exception {
         File parent = cacheFile.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
@@ -774,6 +792,9 @@ public class MainActivity extends AppCompatActivity {
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(30000);
             connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("Accept-Encoding", "identity");
+            connection.setRequestProperty("Connection", "close");
+            connection.setRequestProperty("User-Agent", "SmartAudioBook/1.0 Android");
             int responseCode = connection.getResponseCode();
             if (responseCode < 200 || responseCode >= 300) {
                 throw new IllegalStateException("Audio download HTTP " + responseCode);
