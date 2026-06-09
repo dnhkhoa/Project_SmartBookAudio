@@ -802,7 +802,6 @@ public class MainActivity extends AppCompatActivity {
                 preparedSourceUrl = playbackSourceUrl;
                 mediaDurationSeconds = Math.max(0, player.getDuration() / 1000);
                 seekMediaPlayerTo(playerPositionSeconds);
-                applyPlaybackSpeed();
                 startPreparedAudio();
             });
             mediaPlayer.setOnCompletionListener(player -> {
@@ -941,8 +940,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         try {
-            applyPlaybackSpeed();
             mediaPlayer.start();
+            applyPlaybackSpeed();
             isPlaying = true;
             syncPositionFromMediaPlayer();
             handler.removeCallbacks(playerProgressRunnable);
@@ -1058,7 +1057,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void cyclePlaybackSpeed() {
         playbackSpeedIndex = (playbackSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
-        applyPlaybackSpeed();
+        if (isPlaying && mediaPlayer != null && mediaPlayer.isPlaying()) {
+            applyPlaybackSpeed();
+        }
         updateFullPlayerUi();
         if (isPlaying) {
             startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
@@ -1172,7 +1173,6 @@ public class MainActivity extends AppCompatActivity {
                 AudioPlaybackService.EXTRA_SPEED,
                 getPlaybackSpeedValue()
         ));
-        applyPlaybackSpeed();
         seekMediaPlayerTo(playerPositionSeconds);
 
         boolean shouldPlay = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
@@ -1193,6 +1193,7 @@ public class MainActivity extends AppCompatActivity {
             if (!mediaPlayer.isPlaying()) {
                 mediaPlayer.start();
             }
+            applyPlaybackSpeed();
             isPlaying = true;
             handler.removeCallbacks(playerProgressRunnable);
             handler.postDelayed(playerProgressRunnable, 1000);
