@@ -18,3 +18,5 @@ local.properties
 figma_refs/
 app/google-services.json
 app/*firebase-adminsdk*.json
+firebase_books_catalog/serviceAccountKey.json
+firebase_books_catalog/*firebase-adminsdk*.json

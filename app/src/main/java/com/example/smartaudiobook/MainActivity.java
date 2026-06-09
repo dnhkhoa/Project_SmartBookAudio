@@ -1,6 +1,13 @@
 package com.example.smartaudiobook;
 
+import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -30,6 +37,7 @@ import java.util.Set;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.example.smartaudiobook.data.FirestoreCallback;
 import com.example.smartaudiobook.data.model.Chapter;
@@ -75,9 +83,16 @@ public class MainActivity extends AppCompatActivity {
     private static final String BOOK_CLEAN_CODE = "clean-code-principles";
     private static final String BOOK_AI = "ai-for-everyone";
     private static final String BOOK_ENGLISH = "the-little-prince";
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 731;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable searchRunnable = this::runDebouncedSearch;
+    private final BroadcastReceiver playbackReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            handlePlaybackServiceState(intent);
+        }
+    };
     private final Navigator navigator = new Navigator();
     private final AuthService authService = new AuthService();
     private final BookCatalogService bookCatalogService = new BookCatalogService();
@@ -103,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
     private final Map<String, String> libraryStatuses = new HashMap<>();
+    private boolean playbackReceiverRegistered;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,6 +132,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+        registerPlaybackReceiver();
         navigator.resetTo(Screen.HOME);
 
     }
@@ -123,7 +140,25 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        unregisterPlaybackReceiver();
         super.onDestroy();
+    }
+
+    private void registerPlaybackReceiver() {
+        if (playbackReceiverRegistered) {
+            return;
+        }
+        IntentFilter filter = new IntentFilter(AudioPlaybackService.ACTION_STATE_CHANGED);
+        ContextCompat.registerReceiver(this, playbackReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+        playbackReceiverRegistered = true;
+    }
+
+    private void unregisterPlaybackReceiver() {
+        if (!playbackReceiverRegistered) {
+            return;
+        }
+        unregisterReceiver(playbackReceiver);
+        playbackReceiverRegistered = false;
     }
 
     private final class Navigator {
@@ -449,6 +484,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.fullPlayerProgress).setOnTouchListener((view, event) -> handleProgressTouch(view, event));
         updateFullPlayerUi();
         loadPlayerQueue();
+        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
     }
 
     private void showBackgroundPopup() {
@@ -461,6 +497,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> togglePlayback());
         findViewById(R.id.btnBackgroundNext).setOnClickListener(v -> seekPlayerBy(15));
         updateBackgroundPopupUi();
+        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
     }
 
     private boolean handleProgressTouch(View view, MotionEvent event) {
@@ -470,6 +507,7 @@ public class MainActivity extends AppCompatActivity {
                 float fraction = Math.max(0f, Math.min(1f, event.getX() / width));
                 playerPositionSeconds = clampPlayerPosition((int) (getCurrentDurationSec() * fraction));
                 updateFullPlayerUi();
+                startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
                 savePlaybackState();
             }
             if (event.getAction() == MotionEvent.ACTION_UP) {
@@ -482,11 +520,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void seekPlayerBy(int deltaSeconds) {
         playerPositionSeconds = clampPlayerPosition(playerPositionSeconds + deltaSeconds);
-        if (currentScreen == Screen.FULL_PLAYER) {
-            updateFullPlayerUi();
-        } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-            updateBackgroundPopupUi();
-        }
+        updateVisiblePlayerUi();
+        startPlaybackService(AudioPlaybackService.ACTION_SEEK_BY, deltaSeconds);
         savePlaybackState();
         showToast("Position " + formatTime(playerPositionSeconds));
     }
@@ -497,11 +532,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void togglePlayback() {
         isPlaying = !isPlaying;
-        if (currentScreen == Screen.FULL_PLAYER) {
-            updateFullPlayerUi();
-        } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-            updateBackgroundPopupUi();
-        }
+        updateVisiblePlayerUi();
+        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
         savePlaybackState();
         showToast(isPlaying ? "Playing" : "Paused");
     }
@@ -509,6 +541,7 @@ public class MainActivity extends AppCompatActivity {
     private void cyclePlaybackSpeed() {
         playbackSpeedIndex = (playbackSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
         updateFullPlayerUi();
+        startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
         savePlaybackState();
         showToast("Speed " + PLAYBACK_SPEEDS[playbackSpeedIndex]);
     }
@@ -556,6 +589,87 @@ public class MainActivity extends AppCompatActivity {
         playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
         title.setText(selectedBookTitle);
         chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
+    }
+
+    private void updateVisiblePlayerUi() {
+        if (currentScreen == Screen.FULL_PLAYER) {
+            updateFullPlayerUi();
+        } else if (currentScreen == Screen.BACKGROUND_POPUP) {
+            updateBackgroundPopupUi();
+        }
+    }
+
+    private void startPlaybackService(String action) {
+        startPlaybackService(action, 0);
+    }
+
+    private void startPlaybackService(String action, int seekDeltaSeconds) {
+        if (AudioPlaybackService.ACTION_PLAY.equals(action)) {
+            requestNotificationPermissionIfNeeded();
+        }
+        Intent intent = new Intent(this, AudioPlaybackService.class);
+        intent.setAction(action);
+        intent.putExtra(AudioPlaybackService.EXTRA_BOOK_ID, selectedBookId);
+        intent.putExtra(AudioPlaybackService.EXTRA_BOOK_TITLE, selectedBookTitle);
+        intent.putExtra(AudioPlaybackService.EXTRA_CHAPTER_TITLE, getCurrentChapterTitle());
+        intent.putExtra(AudioPlaybackService.EXTRA_POSITION_SEC, playerPositionSeconds);
+        intent.putExtra(AudioPlaybackService.EXTRA_DURATION_SEC, getCurrentDurationSec());
+        intent.putExtra(AudioPlaybackService.EXTRA_SPEED, getPlaybackSpeedValue());
+        intent.putExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
+        intent.putExtra(AudioPlaybackService.EXTRA_SEEK_DELTA_SEC, seekDeltaSeconds);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && shouldStartForeground(action)) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+    }
+
+    private boolean shouldStartForeground(String action) {
+        return isPlaying
+                || AudioPlaybackService.ACTION_PLAY.equals(action);
+    }
+
+    private void refreshPlaybackServiceIfActive() {
+        if (currentScreen != Screen.FULL_PLAYER && currentScreen != Screen.BACKGROUND_POPUP) {
+            return;
+        }
+        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+    }
+
+    private void handlePlaybackServiceState(Intent intent) {
+        if (intent == null || !AudioPlaybackService.ACTION_STATE_CHANGED.equals(intent.getAction())) {
+            return;
+        }
+        selectedBookTitle = fallback(intent.getStringExtra(AudioPlaybackService.EXTRA_BOOK_TITLE), selectedBookTitle);
+        playerPositionSeconds = clampPlayerPosition(intent.getIntExtra(
+                AudioPlaybackService.EXTRA_POSITION_SEC,
+                playerPositionSeconds
+        ));
+        isPlaying = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
+        playbackSpeedIndex = findPlaybackSpeedIndex(intent.getFloatExtra(
+                AudioPlaybackService.EXTRA_SPEED,
+                getPlaybackSpeedValue()
+        ));
+        updateVisiblePlayerUi();
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
+    }
+
+    private float getPlaybackSpeedValue() {
+        String speed = PLAYBACK_SPEEDS[playbackSpeedIndex].replace("x", "");
+        try {
+            return Float.parseFloat(speed);
+        } catch (NumberFormatException ignored) {
+            return 1.0f;
+        }
     }
 
     private String formatTime(int totalSeconds) {
@@ -1004,6 +1118,7 @@ public class MainActivity extends AppCompatActivity {
                 } else if (currentScreen == Screen.BACKGROUND_POPUP) {
                     updateBackgroundPopupUi();
                 }
+                refreshPlaybackServiceIfActive();
             }
 
             @Override
@@ -1025,6 +1140,7 @@ public class MainActivity extends AppCompatActivity {
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
                 }
+                refreshPlaybackServiceIfActive();
             }
 
             @Override
@@ -1053,6 +1169,7 @@ public class MainActivity extends AppCompatActivity {
                 } else if (currentScreen == Screen.BACKGROUND_POPUP) {
                     updateBackgroundPopupUi();
                 }
+                refreshPlaybackServiceIfActive();
             }
 
             @Override
@@ -1110,7 +1227,7 @@ public class MainActivity extends AppCompatActivity {
     private String getCurrentChapterTitle() {
         Chapter chapter = getCurrentChapter();
         if (chapter == null) {
-            return isPlaying ? "Loading chapters" : "Paused";
+            return getString(R.string.full_player_chapter);
         }
         return "Chapter " + chapter.order + ": " + chapter.title;
     }
@@ -1143,6 +1260,28 @@ public class MainActivity extends AppCompatActivity {
         return 1;
     }
 
+    private int findPlaybackSpeedIndex(float speed) {
+        int closestIndex = 1;
+        float closestDistance = Float.MAX_VALUE;
+        for (int i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+            String value = PLAYBACK_SPEEDS[i].replace("x", "");
+            try {
+                float candidate = Float.parseFloat(value);
+                float distance = Math.abs(candidate - speed);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestIndex = i;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return closestIndex;
+    }
+
+    private static String fallback(String value, String fallback) {
+        return TextUtils.isEmpty(value) ? fallback : value;
+    }
+
     private static final class NoopFirestoreCallback<T> implements FirestoreCallback<T> {
         @Override
         public void onSuccess(T value) {
@@ -1169,4 +1308,3 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 }
-

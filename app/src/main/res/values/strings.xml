@@ -86,6 +86,8 @@
     <string name="background_popup_card_title">Pop-up background playing</string>
     <string name="background_popup_card_body">This mockup demonstrates the requirement: audio continues playing when the screen is off.</string>
     <string name="background_popup_return">Return to player</string>
+    <string name="playback_channel_name">Audiobook playback</string>
+    <string name="playback_channel_description">Media controls for background audiobook playback.</string>
 
     <string name="library_title">Library</string>
     <string name="library_subtitle">Manage created books</string>
