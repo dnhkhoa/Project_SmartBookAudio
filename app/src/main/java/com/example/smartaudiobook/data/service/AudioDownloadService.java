@@ -28,8 +28,31 @@ public class AudioDownloadService {
     }
 
     public File getAudioCacheFile(String bookId, String sourceUrl) {
-        File audioDir = new File(appContext.getFilesDir(), AUDIO_CACHE_DIR);
-        return new File(audioDir, getLocalCacheKey(bookId, sourceUrl));
+        return new File(getAudioCacheDir(), getLocalCacheKey(bookId, sourceUrl));
+    }
+
+    public File getAudioCacheFileByKey(String localCacheKey) {
+        if (localCacheKey == null || localCacheKey.trim().isEmpty()) {
+            return null;
+        }
+        String cleanedKey = localCacheKey.trim().replace('\\', '/');
+        int lastSeparator = cleanedKey.lastIndexOf('/');
+        if (lastSeparator >= 0) {
+            cleanedKey = cleanedKey.substring(lastSeparator + 1);
+        }
+        cleanedKey = cleanedKey.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (cleanedKey.isEmpty()) {
+            return null;
+        }
+        if (".".equals(cleanedKey) || "..".equals(cleanedKey)) {
+            return null;
+        }
+        return new File(getAudioCacheDir(), cleanedKey);
+    }
+
+    public boolean deleteCachedAudio(String localCacheKey) {
+        File cachedAudio = getAudioCacheFileByKey(localCacheKey);
+        return cachedAudio == null || !cachedAudio.exists() || cachedAudio.delete();
     }
 
     public String getLocalCacheKey(String bookId, String sourceUrl) {
@@ -45,7 +68,11 @@ public class AudioDownloadService {
     }
 
     public boolean isCachedAudioReady(File audioFile) {
-        return audioFile.exists() && audioFile.isFile() && audioFile.length() > 0;
+        return audioFile != null && audioFile.exists() && audioFile.isFile() && audioFile.length() > 0;
+    }
+
+    private File getAudioCacheDir() {
+        return new File(appContext.getFilesDir(), AUDIO_CACHE_DIR);
     }
 
     private String getAudioFileExtension(String sourceUrl) {

@@ -83,6 +83,10 @@
     <string name="library_filter_listening">Listening</string>
     <string name="library_filter_downloaded">Downloaded</string>
     <string name="library_filter_completed">Completed</string>
+    <string name="library_state_saved">Saved</string>
+    <string name="library_state_downloaded">Downloaded</string>
+    <string name="library_status_saved_online">Saved online</string>
+    <string name="library_status_available_offline">Available offline</string>
     <string name="library_android_meta">12 chapters - 2 h 35 m - 45%</string>
     <string name="library_clean_code_meta">8 chapters - 1 h 40 m</string>
     <string name="library_ai_lecture">AI Lecture Summary</string>

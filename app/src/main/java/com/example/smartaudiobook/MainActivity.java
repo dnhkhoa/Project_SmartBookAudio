@@ -154,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
     private final Set<String> downloadedLibraryBookIds = new HashSet<>();
     private final Set<String> downloadingBookIds = new HashSet<>();
     private final Map<String, String> libraryStatuses = new HashMap<>();
+    private final Map<String, String> libraryLocalCacheKeys = new HashMap<>();
     private final Map<String, View> dynamicLibraryViews = new HashMap<>();
     private boolean playbackReceiverRegistered;
     private final ActivityResultLauncher<String> notificationPermissionLauncher =
@@ -659,7 +660,9 @@ public class MainActivity extends AppCompatActivity {
             showToast(getString(R.string.audio_downloading));
             return;
         }
-        selectedSourceUrl = playableUrl;
+        if (isPlayableAudioUrl(playableUrl)) {
+            selectedSourceUrl = playableUrl;
+        }
         if (mediaPlayer == null || !playableUrl.equals(preparedSourceUrl)) {
             prepareAndPlayAudio(playableUrl);
             return;
@@ -678,6 +681,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String getLoadedPlayableSourceUrl() {
+        File downloadedAudio = getDownloadedAudioFile(selectedBookId);
+        if (downloadedAudio != null) {
+            return getDownloadedPlaybackSourceId(selectedBookId);
+        }
         if (isPlayableAudioUrl(selectedSourceUrl)) {
             return selectedSourceUrl;
         }
@@ -728,6 +735,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void prepareAndPlayAudio(String sourceUrl) {
+        File downloadedAudio = getDownloadedAudioFile(selectedBookId);
+        if (downloadedAudio != null) {
+            prepareAndPlayCachedAudio(getDownloadedPlaybackSourceId(selectedBookId), downloadedAudio);
+            return;
+        }
         if (!isPlayableAudioUrl(sourceUrl)) {
             sourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
             selectedSourceUrl = sourceUrl;
@@ -738,6 +750,20 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         downloadAudioThenPlay(sourceUrl);
+    }
+
+    private File getDownloadedAudioFile(String bookId) {
+        String localCacheKey = libraryLocalCacheKeys.get(bookId);
+        File downloadedAudio = audioDownloadService.getAudioCacheFileByKey(localCacheKey);
+        if (audioDownloadService.isCachedAudioReady(downloadedAudio)) {
+            return downloadedAudio;
+        }
+        return null;
+    }
+
+    private String getDownloadedPlaybackSourceId(String bookId) {
+        String localCacheKey = libraryLocalCacheKeys.get(bookId);
+        return TextUtils.isEmpty(localCacheKey) ? "local:" + bookId : "local:" + localCacheKey;
     }
 
     private void downloadAudioThenPlay(String sourceUrl) {
@@ -1239,6 +1265,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private View createDynamicLibraryItem(BookSummary book) {
+        boolean isDownloaded = downloadedLibraryBookIds.contains(book.id);
         LinearLayout item = new LinearLayout(this);
         item.setTag(DYNAMIC_LIBRARY_ITEM_TAG);
         item.setOrientation(LinearLayout.HORIZONTAL);
@@ -1280,7 +1307,9 @@ public class MainActivity extends AppCompatActivity {
         ));
 
         TextView meta = new TextView(this);
-        meta.setText(book.author + " - URL source");
+        meta.setText(book.author + " - " + getString(isDownloaded
+                ? R.string.library_status_available_offline
+                : R.string.library_status_saved_online));
         meta.setTextColor(getColor(R.color.text_gray));
         meta.setTextSize(13);
         meta.setSingleLine(true);
@@ -1293,13 +1322,13 @@ public class MainActivity extends AppCompatActivity {
         textColumn.addView(meta, metaParams);
 
         TextView chip = new TextView(this);
-        chip.setText(TextUtils.isEmpty(book.sourceUrl) ? "NO URL" : getString(R.string.play_label));
+        chip.setText(getString(isDownloaded ? R.string.library_state_downloaded : R.string.library_state_saved));
         chip.setTextColor(getColor(R.color.primary_blue));
         chip.setTextSize(9);
         chip.setTypeface(chip.getTypeface(), android.graphics.Typeface.BOLD);
         chip.setGravity(android.view.Gravity.CENTER);
         chip.setBackgroundResource(R.drawable.bg_chip_soft);
-        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(dp(70), dp(22));
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(dp(86), dp(22));
         chipParams.topMargin = dp(5);
         textColumn.addView(chip, chipParams);
 
@@ -1533,6 +1562,7 @@ public class MainActivity extends AppCompatActivity {
             downloadedLibraryBookIds.clear();
             downloadingBookIds.clear();
             libraryStatuses.clear();
+            libraryLocalCacheKeys.clear();
         }
     }
 
@@ -1576,6 +1606,7 @@ public class MainActivity extends AppCompatActivity {
         downloadedLibraryBookIds.clear();
         downloadingBookIds.clear();
         libraryStatuses.clear();
+        libraryLocalCacheKeys.clear();
         Toast.makeText(this, "Signed out", Toast.LENGTH_SHORT).show();
         navigator.resetTo(Screen.LOGIN);
     }
@@ -1595,6 +1626,10 @@ public class MainActivity extends AppCompatActivity {
                 downloadedLibraryBookIds.remove(bookId);
                 downloadingBookIds.remove(bookId);
                 libraryStatuses.remove(bookId);
+                String localCacheKey = libraryLocalCacheKeys.remove(bookId);
+                if (!TextUtils.isEmpty(localCacheKey) && !audioDownloadService.deleteCachedAudio(localCacheKey)) {
+                    Log.w(FIRESTORE_TAG, "AUDIO_CACHE_DELETE_FAIL bookId=" + bookId + " key=" + localCacheKey);
+                }
                 View dynamicView = dynamicLibraryViews.remove(bookId);
                 if (dynamicView != null && currentScreen == Screen.LIBRARY) {
                     ((LinearLayout) findViewById(R.id.libraryContent)).removeView(dynamicView);
@@ -1617,6 +1652,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(Void value) {
                 libraryBookIds.add(bookId);
                 libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                libraryLocalCacheKeys.remove(bookId);
                 updateLibraryFilters();
                 showToast("Added to library");
             }
@@ -1709,6 +1745,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(Void value) {
                 libraryBookIds.add(bookId);
                 libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                libraryLocalCacheKeys.remove(bookId);
                 loadLibraryFromFirestore();
                 showToast("Created: " + title);
             }
@@ -1887,7 +1924,7 @@ public class MainActivity extends AppCompatActivity {
                 showToast(getString(R.string.no_audio_source));
                 return;
             }
-            if (downloadedLibraryBookIds.contains(book.id)) {
+            if (downloadedLibraryBookIds.contains(book.id) && getDownloadedAudioFile(book.id) != null) {
                 showToast(getString(R.string.audio_already_downloaded));
                 return;
             }
@@ -1944,6 +1981,7 @@ public class MainActivity extends AppCompatActivity {
                             libraryBookIds.add(book.id);
                             downloadedLibraryBookIds.add(book.id);
                             libraryStatuses.put(book.id, persistentStatus);
+                            libraryLocalCacheKeys.put(book.id, finalResult.localCacheKey);
                             updateLibraryFilters();
                             showToast(getString(R.string.audio_download_complete));
                         }
@@ -1994,6 +2032,7 @@ public class MainActivity extends AppCompatActivity {
         downloadedLibraryBookIds.clear();
         downloadingBookIds.clear();
         libraryStatuses.clear();
+        libraryLocalCacheKeys.clear();
         dynamicLibraryViews.clear();
         loadedLibraryBooks.clear();
         playerQueue.clear();
@@ -2014,12 +2053,16 @@ public class MainActivity extends AppCompatActivity {
                 libraryBookIds.clear();
                 downloadedLibraryBookIds.clear();
                 libraryStatuses.clear();
+                libraryLocalCacheKeys.clear();
                 for (LibraryEntry entry : entries) {
                     libraryBookIds.add(entry.bookId);
                     if (entry.isDownloaded) {
                         downloadedLibraryBookIds.add(entry.bookId);
                     }
                     libraryStatuses.put(entry.bookId, entry.status);
+                    if (!TextUtils.isEmpty(entry.localCacheKey)) {
+                        libraryLocalCacheKeys.put(entry.bookId, entry.localCacheKey);
+                    }
                 }
                 userLibraryService.syncLibrarySummary(activeUid, new FirestoreCallback<Void>() {
                     @Override
