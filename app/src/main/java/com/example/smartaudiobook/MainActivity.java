@@ -8,9 +8,13 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
+import android.media.PlaybackParams;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
@@ -25,6 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +38,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
@@ -48,6 +55,7 @@ import com.example.smartaudiobook.data.model.LibraryEntry;
 import com.example.smartaudiobook.data.model.PlayerState;
 import com.example.smartaudiobook.data.model.UserProfile;
 import com.example.smartaudiobook.data.service.AuthService;
+import com.example.smartaudiobook.data.service.AudioDownloadService;
 import com.example.smartaudiobook.data.service.BookCatalogService;
 import com.example.smartaudiobook.data.service.ChapterService;
 import com.example.smartaudiobook.data.service.PlaybackStateService;
@@ -72,23 +80,35 @@ public class MainActivity extends AppCompatActivity {
         PROFILE,
         DETAIL,
         EBOOK_DETAIL,
-        FULL_PLAYER,
-        BACKGROUND_POPUP
+        FULL_PLAYER
     }
 
     private static final int DEFAULT_PLAYER_DURATION_SECONDS = 18 * 60 + 30;
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
     private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
     private static final String PREFS_AUTH = "smartbook_auth";
+    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v8_library_download_migrated_";
     private static final String DEFAULT_BOOK_ID = "clean-code-principles";
     private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
     private static final String BOOK_ANDROID = "atomic-habits";
     private static final String BOOK_CLEAN_CODE = "clean-code-principles";
     private static final String BOOK_AI = "ai-for-everyone";
     private static final String BOOK_ENGLISH = "the-little-prince";
+    private static final String DYNAMIC_LIBRARY_ITEM_TAG = "dynamic_library_item";
+    private static final String DEFAULT_PLAYABLE_AUDIO_URL = "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 731;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService audioDownloadExecutor = Executors.newSingleThreadExecutor();
+    private final Runnable playerProgressRunnable = new Runnable() {
+        @Override
+        public void run() {
+            syncPositionFromMediaPlayer();
+            if (isPlaying) {
+                handler.postDelayed(this, 1000);
+            }
+        }
+    };
     private final BroadcastReceiver playbackReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -97,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
     };
     private final Navigator navigator = new Navigator();
     private final AuthService authService = new AuthService();
+    private AudioDownloadService audioDownloadService;
     private final BookCatalogService bookCatalogService = new BookCatalogService();
     private final ChapterService chapterService = new ChapterService();
     private final PlaybackStateService playbackStateService = new PlaybackStateService();
@@ -105,32 +126,48 @@ public class MainActivity extends AppCompatActivity {
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$", Pattern.CASE_INSENSITIVE);
     private EditText searchInput;
+    private LinearLayout exploreAudiobooksContainer;
     private LinearLayout searchResultsContainer;
     private TextView searchMatchCountView;
     private Screen currentScreen = Screen.HOME;
     private int playerPositionSeconds = 85;
     private int playbackSpeedIndex = 1;
     private int selectedLibraryFilter = 0;
-    private boolean isPlaying = true;
-    private boolean librarySortAscending = true;
+    private boolean isPlaying = false;
+    private boolean isPlayerPreparing = false;
+    private boolean isSourceUrlLoading = false;
+    private boolean isAudioDownloading = false;
+    private boolean playbackNotificationActive = false;
     private String activeUid = "";
     private String activeAccountEmail = "";
-    private String selectedBookId = DEFAULT_BOOK_ID;
-    private String selectedBookTitle = DEFAULT_BOOK_TITLE;
+    private String activeDisplayName = "";
+    private String selectedBookId = "";
+    private String selectedBookTitle = "";
+    private String selectedSourceUrl = "";
+    private String preparedSourceUrl = "";
+    private String downloadingSourceUrl = "";
+    private int mediaDurationSeconds = 0;
+    private MediaPlayer mediaPlayer;
     private final List<Chapter> playerQueue = new ArrayList<>();
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
+    private final Set<String> downloadedLibraryBookIds = new HashSet<>();
+    private final Set<String> downloadingBookIds = new HashSet<>();
     private final Map<String, String> libraryStatuses = new HashMap<>();
+    private final Map<String, String> libraryLocalCacheKeys = new HashMap<>();
+    private final Map<String, View> dynamicLibraryViews = new HashMap<>();
     private boolean playbackReceiverRegistered;
     private final ActivityResultLauncher<String> notificationPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 // If denied, foreground service may still run but notification can be blocked on newer Android.
             });
     private SharedPreferences authPreferences;
+    private final List<BookSummary> loadedLibraryBooks = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        audioDownloadService = new AudioDownloadService(this);
         authPreferences = getSharedPreferences(PREFS_AUTH, MODE_PRIVATE);
         maybeRequestNotificationPermission();
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -161,6 +198,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        releaseMediaPlayer();
+        audioDownloadExecutor.shutdownNow();
         unregisterPlaybackReceiver();
         super.onDestroy();
     }
@@ -259,9 +298,6 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case FULL_PLAYER:
                     showFullPlayer();
-                    break;
-                case BACKGROUND_POPUP:
-                    showBackgroundPopup();
                     break;
                 case HOME:
                 default:
@@ -362,14 +398,28 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.EXPLORE;
         prepareLightWindow();
         setContentView(R.layout.activity_explore);
+        exploreAudiobooksContainer = findViewById(R.id.allAudiobooksContainer);
+        EditText exploreSearchInput = findViewById(R.id.edtExploreSearch);
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.btnOpenSearch).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
+        exploreSearchInput.setOnEditorActionListener((textView, actionId, keyEvent) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                String query = exploreSearchInput.getText().toString().trim();
+                if (!query.isEmpty()) {
+                    navigator.navigateTo(Screen.SEARCH);
+                    searchKeyword(query);
+                    return true;
+                }
+            }
+            return false;
+        });
         findViewById(R.id.topicAi).setOnClickListener(v -> openTopic("AI"));
         findViewById(R.id.topicData).setOnClickListener(v -> openTopic("Data"));
         findViewById(R.id.topicSkills).setOnClickListener(v -> openTopic("Skills"));
         findViewById(R.id.topicLanguages).setOnClickListener(v -> openTopic("Languages"));
+        loadAllAudiobooks();
     }
 
     private void showSearch() {
@@ -406,18 +456,8 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
-        findViewById(R.id.btnLibrarySort).setOnClickListener(v -> sortLibraryItems());
-        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> showCreateAudioBookDialog());
         findViewById(R.id.libraryCreateCard).setOnClickListener(v -> showCreateAudioBookDialog());
-        findViewById(R.id.libraryItemAndroid).setOnClickListener(v -> openBookDetail(BOOK_ANDROID));
-        findViewById(R.id.libraryItemAndroidPlay).setOnClickListener(v -> openFullPlayer(BOOK_ANDROID));
-        findViewById(R.id.libraryItemCleanCode).setOnClickListener(v -> openBookDetail(BOOK_CLEAN_CODE));
-        findViewById(R.id.libraryItemCleanCode).setOnLongClickListener(v -> {
-            removeLibraryItem(BOOK_CLEAN_CODE);
-            return true;
-        });
-        findViewById(R.id.libraryItemEnglish).setOnClickListener(v -> openBookDetail(BOOK_ENGLISH));
-        findViewById(R.id.libraryItemAiLecture).setOnClickListener(v -> openBookDetail(BOOK_AI));
+        hideStaticLibraryItems();
         bindLibraryFilters();
         loadLibraryFromFirestore();
     }
@@ -429,6 +469,13 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
+        findViewById(R.id.menuDefaultVoice).setOnClickListener(v ->
+                updateProfilePreference("defaultVoice", "Natural voice", "Default voice updated"));
+        findViewById(R.id.menuAppLanguage).setOnClickListener(v ->
+                updateProfilePreference("appLanguage", "Vietnamese", "Language preference updated"));
+        findViewById(R.id.menuDataStorage).setOnClickListener(v ->
+                updateProfilePreference("storageMode", "Offline first", "Storage preference updated"));
+        findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
         findViewById(R.id.btnSignOut).setOnClickListener(v -> signOut());
         bindProfileFromFirebase();
     }
@@ -478,14 +525,73 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void openFullPlayer() {
+        if (TextUtils.isEmpty(selectedBookId)) {
+            openSavedPlaybackOrFirstLibraryBook();
+            return;
+        }
         openFullPlayer(selectedBookId);
     }
 
     private void openFullPlayer(String bookId) {
+        openFullPlayer(bookId, "");
+    }
+
+    private void openFullPlayer(String bookId, String sourceUrl) {
+        if (TextUtils.isEmpty(bookId)) {
+            openSavedPlaybackOrFirstLibraryBook();
+            return;
+        }
+        if (!selectedBookId.equals(bookId)) {
+            releaseMediaPlayer();
+            mediaDurationSeconds = 0;
+            playerPositionSeconds = 0;
+        }
         selectedBookId = bookId;
+        selectedSourceUrl = sourceUrl == null ? "" : sourceUrl;
         ensureAuthenticated(() -> userLibraryService.markOpened(activeUid, selectedBookId, getCurrentChapterId(), playerPositionSeconds));
         syncBackgroundPlayback();
         navigator.navigateTo(Screen.FULL_PLAYER);
+    }
+
+    private void openSavedPlaybackOrFirstLibraryBook() {
+        ensureAuthenticated(() -> playbackStateService.loadCurrent(activeUid, new FirestoreCallback<PlayerState>() {
+            @Override
+            public void onSuccess(PlayerState state) {
+                if (state != null && !TextUtils.isEmpty(state.bookId)) {
+                    selectedBookTitle = state.bookTitle;
+                    playerPositionSeconds = state.positionSec;
+                    playbackSpeedIndex = findPlaybackSpeedIndex(state.speed);
+                    openFullPlayer(state.bookId);
+                    return;
+                }
+                openFirstLibraryBook();
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PLAYBACK_OPEN_FAIL uid=" + activeUid, error);
+                openFirstLibraryBook();
+            }
+        }));
+    }
+
+    private void openFirstLibraryBook() {
+        userLibraryService.listLibrary(activeUid, new FirestoreCallback<List<LibraryEntry>>() {
+            @Override
+            public void onSuccess(List<LibraryEntry> entries) {
+                if (entries.isEmpty()) {
+                    showToast("Library is empty. Create or save a book first.");
+                    return;
+                }
+                openFullPlayer(entries.get(0).bookId);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "LIBRARY_OPEN_FIRST_FAIL uid=" + activeUid, error);
+                showToast("Library load failed");
+            }
+        });
     }
 
     private void showFullPlayer() {
@@ -494,28 +600,14 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_full_player);
         findViewById(R.id.btnBackFullPlayer).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.btnFullPlayerRewind).setOnClickListener(v -> seekPlayerBy(-15));
-        findViewById(R.id.btnFullPlayerPlayPause).setOnClickListener(v -> togglePlayback());
+        findViewById(R.id.btnFullPlayerPlayPause).setOnClickListener(v -> handlePlayPause());
         findViewById(R.id.btnFullPlayerForward).setOnClickListener(v -> seekPlayerBy(15));
         findViewById(R.id.btnFullPlayerSpeed).setOnClickListener(v -> cyclePlaybackSpeed());
-        findViewById(R.id.btnOpenBackgroundPopup).setOnClickListener(v -> navigator.navigateTo(Screen.BACKGROUND_POPUP));
         findViewById(R.id.btnFullPlayerChapter).setOnClickListener(v -> showToast("Chapter list selected"));
         findViewById(R.id.fullPlayerProgress).setOnTouchListener((view, event) -> handleProgressTouch(view, event));
         updateFullPlayerUi();
         loadPlayerQueue();
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
-    }
-
-    private void showBackgroundPopup() {
-        currentScreen = Screen.BACKGROUND_POPUP;
-        preparePlayerWindow();
-        setContentView(R.layout.activity_background_popup);
-        findViewById(R.id.btnReturnToPlayer).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.backgroundNotification).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.btnBackgroundPrevious).setOnClickListener(v -> seekPlayerBy(-15));
-        findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> togglePlayback());
-        findViewById(R.id.btnBackgroundNext).setOnClickListener(v -> seekPlayerBy(15));
-        updateBackgroundPopupUi();
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+        refreshPlaybackServiceIfActive();
     }
 
     private boolean handleProgressTouch(View view, MotionEvent event) {
@@ -524,8 +616,11 @@ public class MainActivity extends AppCompatActivity {
             if (width > 0) {
                 float fraction = Math.max(0f, Math.min(1f, event.getX() / width));
                 playerPositionSeconds = clampPlayerPosition((int) (getCurrentDurationSec() * fraction));
+                seekMediaPlayerTo(playerPositionSeconds);
                 updateFullPlayerUi();
-                startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+                if (shouldSyncPlaybackService()) {
+                    startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+                }
                 savePlaybackState();
             }
             if (event.getAction() == MotionEvent.ACTION_UP) {
@@ -538,8 +633,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void seekPlayerBy(int deltaSeconds) {
         playerPositionSeconds = clampPlayerPosition(playerPositionSeconds + deltaSeconds);
+        seekMediaPlayerTo(playerPositionSeconds);
         updateVisiblePlayerUi();
-        startPlaybackService(AudioPlaybackService.ACTION_SEEK_BY, deltaSeconds);
+        if (shouldSyncPlaybackService()) {
+            startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+        }
         savePlaybackState();
         showToast("Position " + formatTime(playerPositionSeconds));
     }
@@ -548,19 +646,329 @@ public class MainActivity extends AppCompatActivity {
         return Math.max(0, Math.min(getCurrentDurationSec(), seconds));
     }
 
-    private void togglePlayback() {
-        isPlaying = !isPlaying;
-        updateVisiblePlayerUi();
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
-        savePlaybackState();
-        syncBackgroundPlayback();
-        showToast(isPlaying ? "Playing" : "Paused");
+    private void handlePlayPause() {
+        String playableUrl = getLoadedPlayableSourceUrl();
+        if (TextUtils.isEmpty(playableUrl)) {
+            resolveSourceUrlAndPlay();
+            return;
+        }
+        if (isPlayerPreparing) {
+            showToast("Audio is loading");
+            return;
+        }
+        if (isAudioDownloading) {
+            showToast(getString(R.string.audio_downloading));
+            return;
+        }
+        if (isPlayableAudioUrl(playableUrl)) {
+            selectedSourceUrl = playableUrl;
+        }
+        if (mediaPlayer == null || !playableUrl.equals(preparedSourceUrl)) {
+            prepareAndPlayAudio(playableUrl);
+            return;
+        }
+        if (mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            isPlaying = false;
+            handler.removeCallbacks(playerProgressRunnable);
+            syncPlayerUi();
+            startPlaybackService(AudioPlaybackService.ACTION_PAUSE);
+            savePlaybackState();
+            showToast("Paused");
+            return;
+        }
+        startPreparedAudio();
+    }
+
+    private String getLoadedPlayableSourceUrl() {
+        File downloadedAudio = getDownloadedAudioFile(selectedBookId);
+        if (downloadedAudio != null) {
+            return getDownloadedPlaybackSourceId(selectedBookId);
+        }
+        if (isPlayableAudioUrl(selectedSourceUrl)) {
+            return selectedSourceUrl;
+        }
+        Chapter chapter = getCurrentChapter();
+        if (chapter != null && isPlayableAudioUrl(chapter.audioUrl)) {
+            return chapter.audioUrl;
+        }
+        return "";
+    }
+
+    private void resolveSourceUrlAndPlay() {
+        if (isSourceUrlLoading) {
+            showToast("Audio is loading");
+            return;
+        }
+        isSourceUrlLoading = true;
+        syncPlayerUi();
+        showToast("Loading audio");
+        String resolvingBookId = selectedBookId;
+        bookCatalogService.fetchPlayableAudioUrl(resolvingBookId, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String sourceUrl) {
+                if (!resolvingBookId.equals(selectedBookId) || !isPlayerScreen()) {
+                    isSourceUrlLoading = false;
+                    syncPlayerUi();
+                    return;
+                }
+                isSourceUrlLoading = false;
+                selectedSourceUrl = isPlayableAudioUrl(sourceUrl) ? sourceUrl : DEFAULT_PLAYABLE_AUDIO_URL;
+                syncPlayerUi();
+                prepareAndPlayAudio(selectedSourceUrl);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                if (!resolvingBookId.equals(selectedBookId) || !isPlayerScreen()) {
+                    isSourceUrlLoading = false;
+                    syncPlayerUi();
+                    return;
+                }
+                Log.e(FIRESTORE_TAG, "AUDIO_SOURCE_RESOLVE_FAIL bookId=" + resolvingBookId, error);
+                isSourceUrlLoading = false;
+                selectedSourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
+                syncPlayerUi();
+                prepareAndPlayAudio(selectedSourceUrl);
+            }
+        });
+    }
+
+    private void prepareAndPlayAudio(String sourceUrl) {
+        File downloadedAudio = getDownloadedAudioFile(selectedBookId);
+        if (downloadedAudio != null) {
+            prepareAndPlayCachedAudio(getDownloadedPlaybackSourceId(selectedBookId), downloadedAudio);
+            return;
+        }
+        if (!isPlayableAudioUrl(sourceUrl)) {
+            sourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
+            selectedSourceUrl = sourceUrl;
+        }
+        File cachedAudio = audioDownloadService.getAudioCacheFile(selectedBookId, sourceUrl);
+        if (audioDownloadService.isCachedAudioReady(cachedAudio)) {
+            prepareAndPlayCachedAudio(sourceUrl, cachedAudio);
+            return;
+        }
+        downloadAudioThenPlay(sourceUrl);
+    }
+
+    private File getDownloadedAudioFile(String bookId) {
+        String localCacheKey = libraryLocalCacheKeys.get(bookId);
+        File downloadedAudio = audioDownloadService.getAudioCacheFileByKey(localCacheKey);
+        if (audioDownloadService.isCachedAudioReady(downloadedAudio)) {
+            return downloadedAudio;
+        }
+        return null;
+    }
+
+    private String getDownloadedPlaybackSourceId(String bookId) {
+        String localCacheKey = libraryLocalCacheKeys.get(bookId);
+        return TextUtils.isEmpty(localCacheKey) ? "local:" + bookId : "local:" + localCacheKey;
+    }
+
+    private void downloadAudioThenPlay(String sourceUrl) {
+        if (isAudioDownloading && sourceUrl.equals(downloadingSourceUrl)) {
+            showToast(getString(R.string.audio_downloading));
+            return;
+        }
+        final String downloadBookId = selectedBookId;
+        final String downloadSourceUrl = sourceUrl;
+        isAudioDownloading = true;
+        downloadingSourceUrl = downloadSourceUrl;
+        syncPlayerUi();
+        showToast(getString(R.string.audio_download_start));
+
+        audioDownloadExecutor.execute(() -> {
+            Exception failure = null;
+            AudioDownloadService.DownloadResult result = null;
+            try {
+                result = audioDownloadService.downloadToCache(downloadBookId, downloadSourceUrl);
+            } catch (Exception error) {
+                failure = error;
+            }
+
+            Exception finalFailure = failure;
+            AudioDownloadService.DownloadResult finalResult = result;
+            handler.post(() -> {
+                if (!downloadBookId.equals(selectedBookId) || !downloadSourceUrl.equals(downloadingSourceUrl) || !isPlayerScreen()) {
+                    isAudioDownloading = false;
+                    downloadingSourceUrl = "";
+                    syncPlayerUi();
+                    return;
+                }
+                isAudioDownloading = false;
+                downloadingSourceUrl = "";
+                syncPlayerUi();
+                if (finalFailure != null || finalResult == null) {
+                    Exception logFailure = finalFailure == null
+                            ? new IllegalStateException("Audio download returned no result")
+                            : finalFailure;
+                    Log.e(FIRESTORE_TAG, "AUDIO_DOWNLOAD_FAIL url=" + downloadSourceUrl, logFailure);
+                    showToast(getString(R.string.audio_download_failed));
+                    return;
+                }
+                prepareAndPlayCachedAudio(downloadSourceUrl, finalResult.audioFile);
+            });
+        });
+    }
+
+    private void prepareAndPlayCachedAudio(String sourceUrl, File audioFile) {
+        final String playbackSourceUrl = sourceUrl;
+        releaseMediaPlayer();
+        isPlayerPreparing = true;
+        syncPlayerUi();
+        showToast("Loading local audio");
+        try {
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .build());
+            mediaPlayer.setDataSource(audioFile.getAbsolutePath());
+            mediaPlayer.setOnPreparedListener(player -> {
+                isPlayerPreparing = false;
+                preparedSourceUrl = playbackSourceUrl;
+                mediaDurationSeconds = Math.max(0, player.getDuration() / 1000);
+                seekMediaPlayerTo(playerPositionSeconds);
+                startPreparedAudio();
+            });
+            mediaPlayer.setOnCompletionListener(player -> {
+                isPlaying = false;
+                handler.removeCallbacks(playerProgressRunnable);
+                playerPositionSeconds = clampPlayerPosition(getCurrentDurationSec());
+                syncPlayerUi();
+                startPlaybackService(AudioPlaybackService.ACTION_PAUSE);
+                savePlaybackState();
+                showToast("Finished");
+            });
+            mediaPlayer.setOnErrorListener((player, what, extra) -> {
+                Log.e(FIRESTORE_TAG, "AUDIO_PLAYBACK_FAIL what=" + what + " extra=" + extra + " url=" + playbackSourceUrl);
+                releaseMediaPlayer();
+                syncPlayerUi();
+                showToast("Audio playback failed");
+                return true;
+            });
+            mediaPlayer.prepareAsync();
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_PREPARE_FAIL url=" + sourceUrl + " file=" + audioFile.getAbsolutePath(), error);
+            releaseMediaPlayer();
+            syncPlayerUi();
+            showToast("Cannot load audio");
+        }
+    }
+
+    private void startPreparedAudio() {
+        if (mediaPlayer == null) {
+            return;
+        }
+        try {
+            mediaPlayer.start();
+            applyPlaybackSpeed();
+            isPlaying = true;
+            syncPositionFromMediaPlayer();
+            handler.removeCallbacks(playerProgressRunnable);
+            handler.postDelayed(playerProgressRunnable, 1000);
+            syncPlayerUi();
+            startPlaybackService(AudioPlaybackService.ACTION_PLAY);
+            savePlaybackState();
+            showToast("Playing");
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_START_FAIL url=" + selectedSourceUrl, error);
+            releaseMediaPlayer();
+            syncPlayerUi();
+            showToast("Cannot play audio");
+        }
+    }
+
+    private void seekMediaPlayerTo(int seconds) {
+        if (mediaPlayer == null || isPlayerPreparing) {
+            return;
+        }
+        try {
+            mediaPlayer.seekTo(clampPlayerPosition(seconds) * 1000);
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_SEEK_FAIL", error);
+        }
+    }
+
+    private void syncPositionFromMediaPlayer() {
+        if (mediaPlayer == null || isPlayerPreparing) {
+            return;
+        }
+        try {
+            playerPositionSeconds = clampPlayerPosition(mediaPlayer.getCurrentPosition() / 1000);
+            int duration = mediaPlayer.getDuration() / 1000;
+            if (duration > 0) {
+                mediaDurationSeconds = duration;
+            }
+            syncPlayerUi();
+            syncPlaybackNotificationState();
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_POSITION_SYNC_FAIL", error);
+        }
+    }
+
+    private void syncPlayerUi() {
+        if (currentScreen == Screen.FULL_PLAYER) {
+            updateFullPlayerUi();
+        }
+    }
+
+    private boolean isPlayerScreen() {
+        return currentScreen == Screen.FULL_PLAYER;
+    }
+
+    private void applyPlaybackSpeed() {
+        if (mediaPlayer == null || isPlayerPreparing) {
+            return;
+        }
+        try {
+            PlaybackParams params = mediaPlayer.getPlaybackParams();
+            params.setSpeed(getPlaybackSpeedValue());
+            mediaPlayer.setPlaybackParams(params);
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_SPEED_FAIL speed=" + PLAYBACK_SPEEDS[playbackSpeedIndex], error);
+        }
+    }
+
+    private float getPlaybackSpeedValue() {
+        String speed = PLAYBACK_SPEEDS[playbackSpeedIndex].replace("x", "");
+        try {
+            return Float.parseFloat(speed);
+        } catch (NumberFormatException error) {
+            return 1.0f;
+        }
+    }
+
+    private void releaseMediaPlayer() {
+        boolean wasPlaying = isPlaying;
+        handler.removeCallbacks(playerProgressRunnable);
+        isPlaying = false;
+        isPlayerPreparing = false;
+        isSourceUrlLoading = false;
+        isAudioDownloading = false;
+        preparedSourceUrl = "";
+        downloadingSourceUrl = "";
+        if (mediaPlayer != null) {
+            try {
+                mediaPlayer.release();
+            } catch (Exception error) {
+                Log.e(FIRESTORE_TAG, "AUDIO_RELEASE_FAIL", error);
+            }
+            mediaPlayer = null;
+        }
+        if (wasPlaying) {
+            startPlaybackService(AudioPlaybackService.ACTION_PAUSE);
+        }
     }
 
     private void syncBackgroundPlayback() {
+        if (!isPlaying) {
+            return;
+        }
         // Keep audio running in a foreground service when "playing" so it continues outside the app UI.
         Intent intent = new Intent(this, AudioPlaybackService.class)
-                .setAction(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+                .setAction(AudioPlaybackService.ACTION_PLAY);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ContextCompat.startForegroundService(this, intent);
         } else {
@@ -570,8 +978,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void cyclePlaybackSpeed() {
         playbackSpeedIndex = (playbackSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
+        if (isPlaying && mediaPlayer != null && mediaPlayer.isPlaying()) {
+            applyPlaybackSpeed();
+        }
         updateFullPlayerUi();
-        startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
+        if (shouldSyncPlaybackService()) {
+            startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
+        }
         savePlaybackState();
         showToast("Speed " + PLAYBACK_SPEEDS[playbackSpeedIndex]);
     }
@@ -589,7 +1002,7 @@ public class MainActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.fullPlayerBookTitle)).setText(selectedBookTitle);
         elapsed.setText(formatTime(playerPositionSeconds));
         duration.setText(formatTime(getCurrentDurationSec()));
-        playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
+        playPause.setText(isPlayerPreparing || isSourceUrlLoading || isAudioDownloading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
         speed.setText(PLAYBACK_SPEEDS[playbackSpeedIndex]);
         chapter.setText(getCurrentChapterTitle());
 
@@ -612,25 +1025,24 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void updateBackgroundPopupUi() {
-        TextView playPause = findViewById(R.id.btnBackgroundPlayPause);
-        TextView title = findViewById(R.id.backgroundAudioTitle);
-        TextView chapter = findViewById(R.id.backgroundAudioChapter);
-        playPause.setText(isPlaying ? getString(R.string.full_player_pause_icon) : ">");
-        title.setText(selectedBookTitle);
-        chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
-    }
-
     private void updateVisiblePlayerUi() {
         if (currentScreen == Screen.FULL_PLAYER) {
             updateFullPlayerUi();
-        } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-            updateBackgroundPopupUi();
         }
     }
 
     private void startPlaybackService(String action) {
         startPlaybackService(action, 0);
+    }
+
+    private void syncPlaybackNotificationState() {
+        if (shouldSyncPlaybackService()) {
+            startPlaybackService(AudioPlaybackService.ACTION_SYNC_STATE);
+        }
+    }
+
+    private boolean shouldSyncPlaybackService() {
+        return isPlaying || playbackNotificationActive;
     }
 
     private void startPlaybackService(String action, int seekDeltaSeconds) {
@@ -652,6 +1064,14 @@ public class MainActivity extends AppCompatActivity {
         } else {
             startService(intent);
         }
+        if (AudioPlaybackService.ACTION_PLAY.equals(action)
+                || AudioPlaybackService.ACTION_PAUSE.equals(action)
+                || AudioPlaybackService.ACTION_SEEK_TO.equals(action)
+                || AudioPlaybackService.ACTION_SEEK_BY.equals(action)
+                || AudioPlaybackService.ACTION_SYNC_STATE.equals(action)
+                || AudioPlaybackService.ACTION_SET_SPEED.equals(action)) {
+            playbackNotificationActive = true;
+        }
     }
 
     private boolean shouldStartForeground(String action) {
@@ -660,10 +1080,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshPlaybackServiceIfActive() {
-        if (currentScreen != Screen.FULL_PLAYER && currentScreen != Screen.BACKGROUND_POPUP) {
+        if (currentScreen != Screen.FULL_PLAYER) {
             return;
         }
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+        if (isPlaying) {
+            startPlaybackService(AudioPlaybackService.ACTION_PLAY);
+        }
     }
 
     private void handlePlaybackServiceState(Intent intent) {
@@ -671,16 +1093,60 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         selectedBookTitle = fallback(intent.getStringExtra(AudioPlaybackService.EXTRA_BOOK_TITLE), selectedBookTitle);
-        playerPositionSeconds = clampPlayerPosition(intent.getIntExtra(
+        int servicePositionSeconds = clampPlayerPosition(intent.getIntExtra(
                 AudioPlaybackService.EXTRA_POSITION_SEC,
                 playerPositionSeconds
         ));
-        isPlaying = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
+        boolean shouldSeekLocalPlayer = Math.abs(servicePositionSeconds - playerPositionSeconds) > 1;
+        playerPositionSeconds = servicePositionSeconds;
         playbackSpeedIndex = findPlaybackSpeedIndex(intent.getFloatExtra(
                 AudioPlaybackService.EXTRA_SPEED,
                 getPlaybackSpeedValue()
         ));
+        if (shouldSeekLocalPlayer) {
+            seekMediaPlayerTo(playerPositionSeconds);
+        }
+
+        boolean shouldPlay = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
+        if (shouldPlay) {
+            resumePreparedAudioFromNotification();
+        } else {
+            pausePreparedAudioFromNotification();
+        }
         updateVisiblePlayerUi();
+    }
+
+    private void resumePreparedAudioFromNotification() {
+        if (mediaPlayer == null || isPlayerPreparing || isAudioDownloading || isSourceUrlLoading) {
+            isPlaying = false;
+            return;
+        }
+        try {
+            if (!mediaPlayer.isPlaying()) {
+                mediaPlayer.start();
+            }
+            applyPlaybackSpeed();
+            isPlaying = true;
+            handler.removeCallbacks(playerProgressRunnable);
+            handler.postDelayed(playerProgressRunnable, 1000);
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_NOTIFICATION_RESUME_FAIL", error);
+            releaseMediaPlayer();
+        }
+    }
+
+    private void pausePreparedAudioFromNotification() {
+        if (mediaPlayer != null) {
+            try {
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.pause();
+                }
+            } catch (Exception error) {
+                Log.e(FIRESTORE_TAG, "AUDIO_NOTIFICATION_PAUSE_FAIL", error);
+            }
+        }
+        isPlaying = false;
+        handler.removeCallbacks(playerProgressRunnable);
     }
 
     private void requestNotificationPermissionIfNeeded() {
@@ -691,15 +1157,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
-    }
-
-    private float getPlaybackSpeedValue() {
-        String speed = PLAYBACK_SPEEDS[playbackSpeedIndex].replace("x", "");
-        try {
-            return Float.parseFloat(speed);
-        } catch (NumberFormatException ignored) {
-            return 1.0f;
-        }
     }
 
     private String formatTime(int totalSeconds) {
@@ -725,14 +1182,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateLibraryFilters() {
+        if (currentScreen != Screen.LIBRARY) {
+            return;
+        }
         setLibraryFilterState(R.id.filterAll, selectedLibraryFilter == 0);
         setLibraryFilterState(R.id.filterListening, selectedLibraryFilter == 1);
         setLibraryFilterState(R.id.filterDownloaded, selectedLibraryFilter == 2);
         setLibraryFilterState(R.id.filterCompleted, selectedLibraryFilter == 3);
-        setLibraryItemVisibility(R.id.libraryItemAndroid, shouldShowLibraryBook(BOOK_ANDROID));
-        setLibraryItemVisibility(R.id.libraryItemCleanCode, shouldShowLibraryBook(BOOK_CLEAN_CODE));
-        setLibraryItemVisibility(R.id.libraryItemAiLecture, shouldShowLibraryBook(BOOK_AI));
-        setLibraryItemVisibility(R.id.libraryItemEnglish, shouldShowLibraryBook(BOOK_ENGLISH));
+        for (Map.Entry<String, View> entry : dynamicLibraryViews.entrySet()) {
+            entry.getValue().setVisibility(shouldShowLibraryBook(entry.getKey()) ? View.VISIBLE : View.GONE);
+        }
     }
 
     private boolean shouldShowLibraryBook(String bookId) {
@@ -747,7 +1206,7 @@ public class MainActivity extends AppCompatActivity {
             case 1:
                 return LibraryEntry.STATUS_SAVED.equals(status);
             case 2:
-                return LibraryEntry.STATUS_DOWNLOADING.equals(status);
+                return downloadedLibraryBookIds.contains(bookId);
             case 3:
                 return LibraryEntry.STATUS_FINISHED.equals(status);
             case 0:
@@ -758,12 +1217,159 @@ public class MainActivity extends AppCompatActivity {
 
     private void setLibraryFilterState(int viewId, boolean selected) {
         TextView filter = findViewById(viewId);
+        if (filter == null) {
+            return;
+        }
         filter.setBackgroundResource(selected ? R.drawable.bg_button_gradient : R.drawable.bg_chip_soft);
         filter.setTextColor(getColor(selected ? android.R.color.white : R.color.primary_blue));
     }
 
-    private void setLibraryItemVisibility(int viewId, boolean visible) {
-        findViewById(viewId).setVisibility(visible ? View.VISIBLE : View.GONE);
+    private void hideStaticLibraryItems() {
+        int[] staticLibraryItemIds = {
+                R.id.libraryItemAndroid,
+                R.id.libraryItemCleanCode,
+                R.id.libraryItemAiLecture,
+                R.id.libraryItemEnglish
+        };
+        for (int viewId : staticLibraryItemIds) {
+            View item = findViewById(viewId);
+            if (item != null) {
+                item.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    private void renderDynamicLibraryItems(List<BookSummary> books) {
+        clearDynamicLibraryItems();
+        LinearLayout content = findViewById(R.id.libraryContent);
+        View createCard = findViewById(R.id.libraryCreateCard);
+        int insertIndex = content.indexOfChild(createCard);
+        if (insertIndex < 0) {
+            insertIndex = content.getChildCount();
+        }
+
+        for (BookSummary book : books) {
+            View item = createDynamicLibraryItem(book);
+            dynamicLibraryViews.put(book.id, item);
+            content.addView(item, insertIndex++);
+        }
+        updateLibraryFilters();
+    }
+
+    private void clearDynamicLibraryItems() {
+        LinearLayout content = findViewById(R.id.libraryContent);
+        for (View item : dynamicLibraryViews.values()) {
+            content.removeView(item);
+        }
+        dynamicLibraryViews.clear();
+    }
+
+    private View createDynamicLibraryItem(BookSummary book) {
+        boolean isDownloaded = downloadedLibraryBookIds.contains(book.id);
+        LinearLayout item = new LinearLayout(this);
+        item.setTag(DYNAMIC_LIBRARY_ITEM_TAG);
+        item.setOrientation(LinearLayout.HORIZONTAL);
+        item.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        item.setBackgroundResource(R.drawable.bg_library_card);
+        item.setElevation(dp(1));
+        item.setPadding(dp(14), 0, dp(10), 0);
+        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(84)
+        );
+        itemParams.topMargin = dp(16);
+        item.setLayoutParams(itemParams);
+
+        View cover = new View(this);
+        cover.setBackgroundResource(pickLibraryCover(book.id));
+        item.addView(cover, new LinearLayout.LayoutParams(dp(58), dp(60)));
+
+        LinearLayout textColumn = new LinearLayout(this);
+        textColumn.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams columnParams = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        columnParams.leftMargin = dp(14);
+        item.addView(textColumn, columnParams);
+
+        TextView title = new TextView(this);
+        title.setText(book.title);
+        title.setTextColor(getColor(R.color.text_dark));
+        title.setTextSize(15);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        textColumn.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        TextView meta = new TextView(this);
+        meta.setText(book.author + " - " + getString(isDownloaded
+                ? R.string.library_status_available_offline
+                : R.string.library_status_saved_online));
+        meta.setTextColor(getColor(R.color.text_gray));
+        meta.setTextSize(13);
+        meta.setSingleLine(true);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams metaParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        metaParams.topMargin = dp(5);
+        textColumn.addView(meta, metaParams);
+
+        TextView chip = new TextView(this);
+        chip.setText(getString(isDownloaded ? R.string.library_state_downloaded : R.string.library_state_saved));
+        chip.setTextColor(getColor(R.color.primary_blue));
+        chip.setTextSize(9);
+        chip.setTypeface(chip.getTypeface(), android.graphics.Typeface.BOLD);
+        chip.setGravity(android.view.Gravity.CENTER);
+        chip.setBackgroundResource(R.drawable.bg_chip_soft);
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(dp(86), dp(22));
+        chipParams.topMargin = dp(5);
+        textColumn.addView(chip, chipParams);
+
+        TextView playButton = new TextView(this);
+        playButton.setText(">");
+        playButton.setTextColor(Color.WHITE);
+        playButton.setTextSize(18);
+        playButton.setTypeface(playButton.getTypeface(), android.graphics.Typeface.BOLD);
+        playButton.setGravity(android.view.Gravity.CENTER);
+        playButton.setBackgroundResource(R.drawable.bg_circle_teal);
+        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+        item.addView(playButton, playParams);
+
+        View.OnClickListener openPlayer = v -> openFullPlayer(book.id, book.sourceUrl);
+        item.setOnClickListener(openPlayer);
+        playButton.setOnClickListener(openPlayer);
+        item.setOnLongClickListener(v -> {
+            removeLibraryItem(book.id);
+            return true;
+        });
+
+        return item;
+    }
+
+    private int pickLibraryCover(String bookId) {
+        int index = Math.abs(bookId.hashCode()) % 4;
+        switch (index) {
+            case 0:
+                return R.drawable.bg_library_cover_blue;
+            case 1:
+                return R.drawable.bg_library_cover_teal;
+            case 2:
+                return R.drawable.bg_library_cover_purple;
+            case 3:
+            default:
+                return R.drawable.bg_library_cover_orange;
+        }
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void showProfileAction(String title) {
@@ -772,6 +1378,21 @@ public class MainActivity extends AppCompatActivity {
                 .setMessage("This setting screen is ready for the next implementation step.")
                 .setPositiveButton("OK", null)
                 .show();
+    }
+
+    private void updateProfilePreference(String key, String value, String successMessage) {
+        ensureAuthenticated(() -> profileService.updatePreference(activeUid, key, value, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void ignored) {
+                showToast(successMessage);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "PROFILE_PREFERENCE_UPDATE_FAIL key=" + key + " uid=" + activeUid, error);
+                showToast("Preference update failed");
+            }
+        }));
     }
 
     private void showToast(String message) {
@@ -827,6 +1448,7 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     authPreferences.edit().clear().apply();
                 }
+                runFirebaseSchemaMigration();
                 Toast.makeText(MainActivity.this, "Login success", Toast.LENGTH_SHORT).show();
                 navigator.resetTo(Screen.HOME);
             }
@@ -862,6 +1484,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(AuthService.UserRecord user) {
                 applyLoggedInUser(user);
                 authPreferences.edit().clear().apply();
+                runFirebaseSchemaMigration();
                 Toast.makeText(MainActivity.this, "Register success", Toast.LENGTH_SHORT).show();
                 navigator.resetTo(Screen.HOME);
             }
@@ -933,17 +1556,57 @@ public class MainActivity extends AppCompatActivity {
         boolean accountChanged = !TextUtils.equals(activeUid, user.documentId);
         activeUid = user.documentId;
         activeAccountEmail = user.email;
+        activeDisplayName = user.displayName;
         if (accountChanged) {
             libraryBookIds.clear();
+            downloadedLibraryBookIds.clear();
+            downloadingBookIds.clear();
             libraryStatuses.clear();
+            libraryLocalCacheKeys.clear();
         }
+    }
+
+    private void runFirebaseSchemaMigration() {
+        if (TextUtils.isEmpty(activeUid)) {
+            return;
+        }
+        String migrationKey = PREF_FIREBASE_SCHEMA_MIGRATED + activeUid;
+        if (authPreferences.getBoolean(migrationKey, false)) {
+            return;
+        }
+        profileService.migrateAllUsersSchema(new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                bookCatalogService.migrateBookSchema(new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        authPreferences.edit().putBoolean(migrationKey, true).apply();
+                        Log.d(FIRESTORE_TAG, "FIREBASE_SCHEMA_MIGRATION_DONE uid=" + activeUid);
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        Log.e(FIRESTORE_TAG, "BOOK_SCHEMA_MIGRATION_FAIL", error);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "USER_SCHEMA_MIGRATION_FAIL", error);
+            }
+        });
     }
 
     private void signOut() {
         activeUid = "";
         activeAccountEmail = "";
+        activeDisplayName = "";
         libraryBookIds.clear();
+        downloadedLibraryBookIds.clear();
+        downloadingBookIds.clear();
         libraryStatuses.clear();
+        libraryLocalCacheKeys.clear();
         Toast.makeText(this, "Signed out", Toast.LENGTH_SHORT).show();
         navigator.resetTo(Screen.LOGIN);
     }
@@ -960,7 +1623,17 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onSuccess(Void value) {
                 libraryBookIds.remove(bookId);
+                downloadedLibraryBookIds.remove(bookId);
+                downloadingBookIds.remove(bookId);
                 libraryStatuses.remove(bookId);
+                String localCacheKey = libraryLocalCacheKeys.remove(bookId);
+                if (!TextUtils.isEmpty(localCacheKey) && !audioDownloadService.deleteCachedAudio(localCacheKey)) {
+                    Log.w(FIRESTORE_TAG, "AUDIO_CACHE_DELETE_FAIL bookId=" + bookId + " key=" + localCacheKey);
+                }
+                View dynamicView = dynamicLibraryViews.remove(bookId);
+                if (dynamicView != null && currentScreen == Screen.LIBRARY) {
+                    ((LinearLayout) findViewById(R.id.libraryContent)).removeView(dynamicView);
+                }
                 updateLibraryFilters();
                 showToast("Removed from library");
             }
@@ -979,6 +1652,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(Void value) {
                 libraryBookIds.add(bookId);
                 libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                libraryLocalCacheKeys.remove(bookId);
                 updateLibraryFilters();
                 showToast("Added to library");
             }
@@ -992,14 +1666,40 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCreateAudioBookDialog() {
+        int horizontalPadding = Math.round(24 * getResources().getDisplayMetrics().density);
+        int verticalPadding = Math.round(8 * getResources().getDisplayMetrics().density);
+        LinearLayout inputContainer = new LinearLayout(this);
+        inputContainer.setOrientation(LinearLayout.VERTICAL);
+        inputContainer.setPadding(horizontalPadding, verticalPadding, horizontalPadding, 0);
+
         EditText titleInput = new EditText(this);
         titleInput.setSingleLine(true);
         titleInput.setHint("Audio book title");
-        titleInput.setPadding(32, 16, 32, 16);
+        titleInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        titleInput.setSelectAllOnFocus(false);
+        titleInput.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        inputContainer.addView(titleInput);
+
+        EditText sourceInput = new EditText(this);
+        sourceInput.setSingleLine(true);
+        sourceInput.setHint("Direct audio URL (.mp3, .m4a, .m3u8)");
+        sourceInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        sourceInput.setSelectAllOnFocus(false);
+        LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        int sourceTopMargin = Math.round(12 * getResources().getDisplayMetrics().density);
+        sourceParams.topMargin = sourceTopMargin;
+        sourceInput.setLayoutParams(sourceParams);
+        inputContainer.addView(sourceInput);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Create Audio Book")
-                .setView(titleInput)
+                .setView(inputContainer)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", null)
                 .create();
@@ -1009,20 +1709,26 @@ public class MainActivity extends AppCompatActivity {
                 titleInput.setError("Title is required");
                 return;
             }
+            String sourceUrl = sourceInput.getText().toString().trim();
+            if (TextUtils.isEmpty(sourceUrl)) {
+                sourceInput.setError("Audio URL is required");
+                return;
+            }
+            if (!isValidSourceUrl(sourceUrl)) {
+                sourceInput.setError("Use a direct audio URL, not YouTube");
+                return;
+            }
             dialog.dismiss();
-            createCustomAudioBook(title);
+            createCustomAudioBook(title, sourceUrl);
         }));
         dialog.show();
     }
 
-    private void createCustomAudioBook(String title) {
-        ensureAuthenticated(() -> userLibraryService.addCustomBook(activeUid, title, new FirestoreCallback<String>() {
+    private void createCustomAudioBook(String title, String sourceUrl) {
+        ensureAuthenticated(() -> bookCatalogService.createUserBook(activeUid, activeDisplayName, title, sourceUrl, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String bookId) {
-                libraryBookIds.add(bookId);
-                libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
-                updateLibraryFilters();
-                showToast("Created: " + title);
+                saveCreatedBookToLibrary(bookId, title);
             }
 
             @Override
@@ -1033,34 +1739,73 @@ public class MainActivity extends AppCompatActivity {
         }));
     }
 
-    private void sortLibraryItems() {
-        LinearLayout content = findViewById(R.id.libraryContent);
-        View androidItem = findViewById(R.id.libraryItemAndroid);
-        View cleanCodeItem = findViewById(R.id.libraryItemCleanCode);
-        View aiItem = findViewById(R.id.libraryItemAiLecture);
-        View englishItem = findViewById(R.id.libraryItemEnglish);
+    private void saveCreatedBookToLibrary(String bookId, String title) {
+        userLibraryService.addBook(activeUid, bookId, LibraryEntry.STATUS_SAVED, new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                libraryBookIds.add(bookId);
+                libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
+                libraryLocalCacheKeys.remove(bookId);
+                loadLibraryFromFirestore();
+                showToast("Created: " + title);
+            }
 
-        content.removeView(androidItem);
-        content.removeView(cleanCodeItem);
-        content.removeView(aiItem);
-        content.removeView(englishItem);
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "CUSTOM_AUDIOBOOK_LIBRARY_ADD_FAIL bookId=" + bookId, error);
+                showToast("Book created, but library add failed");
+            }
+        });
+    }
 
-        int insertIndex = 2;
-        if (librarySortAscending) {
-            content.addView(aiItem, insertIndex++);
-            content.addView(androidItem, insertIndex++);
-            content.addView(cleanCodeItem, insertIndex++);
-            content.addView(englishItem, insertIndex);
-            showToast("Sort: A-Z");
-        } else {
-            content.addView(englishItem, insertIndex++);
-            content.addView(cleanCodeItem, insertIndex++);
-            content.addView(androidItem, insertIndex++);
-            content.addView(aiItem, insertIndex);
-            showToast("Sort: Z-A");
+    private boolean isValidSourceUrl(String sourceUrl) {
+        return isPlayableAudioUrl(sourceUrl);
+    }
+
+    private boolean isPlayableAudioUrl(String sourceUrl) {
+        if (TextUtils.isEmpty(sourceUrl)) {
+            return false;
         }
-        librarySortAscending = !librarySortAscending;
-        updateLibraryFilters();
+        String normalized = sourceUrl.toLowerCase(Locale.US);
+        boolean webUrl = normalized.startsWith("http://") || normalized.startsWith("https://");
+        boolean blockedPageUrl = normalized.contains("youtube.com")
+                || normalized.contains("youtu.be")
+                || normalized.contains("music.youtube.com");
+        boolean directAudioUrl = normalized.contains(".mp3")
+                || normalized.contains(".m4a")
+                || normalized.contains(".aac")
+                || normalized.contains(".wav")
+                || normalized.contains(".ogg")
+                || normalized.contains(".opus")
+                || normalized.contains(".m3u8");
+        return webUrl && !blockedPageUrl && directAudioUrl;
+    }
+
+    private void loadAllAudiobooks() {
+        if (exploreAudiobooksContainer == null) {
+            return;
+        }
+        renderBookActionList(
+                exploreAudiobooksContainer,
+                new ArrayList<>(),
+                getString(R.string.all_audiobooks_loading)
+        );
+        bookCatalogService.fetchAllBooks(20, new FirestoreCallback<List<BookSummary>>() {
+            @Override
+            public void onSuccess(List<BookSummary> books) {
+                if (currentScreen == Screen.EXPLORE) {
+                    renderBookActionList(exploreAudiobooksContainer, books, getString(R.string.all_audiobooks_empty));
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "ALL_AUDIOBOOKS_LOAD_FAIL", error);
+                if (currentScreen == Screen.EXPLORE) {
+                    renderBookActionList(exploreAudiobooksContainer, new ArrayList<>(), getString(R.string.all_audiobooks_load_failed));
+                }
+            }
+        });
     }
 
     private void searchBooks() {
@@ -1127,32 +1872,132 @@ public class MainActivity extends AppCompatActivity {
         if (searchResultsContainer == null) {
             return;
         }
-        searchResultsContainer.removeAllViews();
+        renderBookActionList(searchResultsContainer, books, getString(R.string.search_no_results));
+    }
+
+    private void renderBookActionList(LinearLayout container, List<BookSummary> books, String emptyMessage) {
+        if (container == null) {
+            return;
+        }
+        container.removeAllViews();
 
         if (books == null || books.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText("No results");
+            empty.setText(emptyMessage);
             empty.setTextColor(getResources().getColor(R.color.text_gray));
             empty.setTextSize(12f);
             empty.setPadding(0, 18, 0, 0);
-            searchResultsContainer.addView(empty);
+            container.addView(empty);
             return;
         }
 
         for (BookSummary book : books) {
-            View item = getLayoutInflater().inflate(R.layout.item_search_result, searchResultsContainer, false);
-            TextView title = item.findViewById(R.id.title);
-            TextView subtitle = item.findViewById(R.id.subtitle);
-            View play = item.findViewById(R.id.playButton);
-
-            title.setText(book.title);
-            subtitle.setText("bookId: " + book.id);
-
-            item.setOnClickListener(v -> openBookDetail(book.id));
-            play.setOnClickListener(v -> openFullPlayer(book.id));
-
-            searchResultsContainer.addView(item);
+            container.addView(createBookActionItem(container, book));
         }
+    }
+
+    private View createBookActionItem(ViewGroup parent, BookSummary book) {
+        View item = getLayoutInflater().inflate(R.layout.item_search_result, parent, false);
+        TextView title = item.findViewById(R.id.title);
+        TextView subtitle = item.findViewById(R.id.subtitle);
+        View play = item.findViewById(R.id.playButton);
+        View add = item.findViewById(R.id.addButton);
+        View download = item.findViewById(R.id.downloadButton);
+
+        title.setText(book.title);
+        subtitle.setText(book.author);
+
+        item.setOnClickListener(v -> openBookDetail(book.id));
+        play.setOnClickListener(v -> openFullPlayer(book.id, book.sourceUrl));
+        add.setOnClickListener(v -> addLibraryItem(book.id));
+        download.setOnClickListener(v -> requestAudiobookDownload(book));
+        return item;
+    }
+
+    private void requestAudiobookDownload(BookSummary book) {
+        ensureAuthenticated(() -> {
+            if (TextUtils.isEmpty(book.sourceUrl)) {
+                showToast(getString(R.string.no_audio_source));
+                return;
+            }
+            if (!isPlayableAudioUrl(book.sourceUrl)) {
+                showToast(getString(R.string.no_audio_source));
+                return;
+            }
+            if (downloadedLibraryBookIds.contains(book.id) && getDownloadedAudioFile(book.id) != null) {
+                showToast(getString(R.string.audio_already_downloaded));
+                return;
+            }
+            if (downloadingBookIds.contains(book.id)) {
+                showToast(getString(R.string.audio_downloading));
+                return;
+            }
+            final String downloadUid = activeUid;
+            final String persistentStatus = getPersistentLibraryStatus(book.id);
+            downloadingBookIds.add(book.id);
+            showToast(getString(R.string.audio_download_start));
+            downloadAudiobookForOffline(downloadUid, book, persistentStatus);
+        });
+    }
+
+    private String getPersistentLibraryStatus(String bookId) {
+        String status = libraryStatuses.get(bookId);
+        if (TextUtils.isEmpty(status) || LibraryEntry.STATUS_DOWNLOADING.equals(status)) {
+            return LibraryEntry.STATUS_SAVED;
+        }
+        return status;
+    }
+
+    private void downloadAudiobookForOffline(String downloadUid, BookSummary book, String persistentStatus) {
+        audioDownloadExecutor.execute(() -> {
+            Exception failure = null;
+            AudioDownloadService.DownloadResult result = null;
+            try {
+                result = audioDownloadService.downloadToCache(book.id, book.sourceUrl);
+            } catch (Exception error) {
+                failure = error;
+            }
+
+            Exception finalFailure = failure;
+            AudioDownloadService.DownloadResult finalResult = result;
+            handler.post(() -> {
+                boolean isCurrentAccount = TextUtils.equals(downloadUid, activeUid);
+                if (finalFailure != null || finalResult == null) {
+                    downloadingBookIds.remove(book.id);
+                    Exception logFailure = finalFailure == null
+                            ? new IllegalStateException("Audio download returned no result")
+                            : finalFailure;
+                    Log.e(FIRESTORE_TAG, "OFFLINE_DOWNLOAD_FAIL bookId=" + book.id + " url=" + book.sourceUrl, logFailure);
+                    if (isCurrentAccount) {
+                        showToast(getString(R.string.audio_download_failed));
+                    }
+                    return;
+                }
+                userLibraryService.markDownloaded(downloadUid, book.id, finalResult.localCacheKey, persistentStatus, new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        downloadingBookIds.remove(book.id);
+                        if (isCurrentAccount) {
+                            libraryBookIds.add(book.id);
+                            downloadedLibraryBookIds.add(book.id);
+                            libraryStatuses.put(book.id, persistentStatus);
+                            libraryLocalCacheKeys.put(book.id, finalResult.localCacheKey);
+                            updateLibraryFilters();
+                            showToast(getString(R.string.audio_download_complete));
+                        }
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        downloadingBookIds.remove(book.id);
+                        Log.e(FIRESTORE_TAG, "DOWNLOAD_MARK_DONE_FAIL bookId=" + book.id, error);
+                        if (isCurrentAccount) {
+                            showToast(getString(R.string.audio_download_sync_failed));
+                        }
+                    }
+                });
+            });
+        });
     }
 
     private void ensureAuthenticated(Runnable onReady) {
@@ -1179,16 +2024,58 @@ public class MainActivity extends AppCompatActivity {
         return TextUtils.isEmpty(normalized) ? "user" : normalized;
     }
 
+    private void clearActiveAccount() {
+        activeUid = "";
+        activeAccountEmail = "";
+        activeDisplayName = "";
+        libraryBookIds.clear();
+        downloadedLibraryBookIds.clear();
+        downloadingBookIds.clear();
+        libraryStatuses.clear();
+        libraryLocalCacheKeys.clear();
+        dynamicLibraryViews.clear();
+        loadedLibraryBooks.clear();
+        playerQueue.clear();
+        selectedBookId = "";
+        selectedBookTitle = "";
+        selectedSourceUrl = "";
+        currentChapterIndex = 0;
+        playerPositionSeconds = 85;
+        playbackSpeedIndex = 1;
+        mediaDurationSeconds = 0;
+        releaseMediaPlayer();
+    }
+
     private void loadLibraryFromFirestore() {
         ensureAuthenticated(() -> userLibraryService.listLibrary(activeUid, new FirestoreCallback<List<LibraryEntry>>() {
             @Override
             public void onSuccess(List<LibraryEntry> entries) {
                 libraryBookIds.clear();
+                downloadedLibraryBookIds.clear();
                 libraryStatuses.clear();
+                libraryLocalCacheKeys.clear();
                 for (LibraryEntry entry : entries) {
                     libraryBookIds.add(entry.bookId);
+                    if (entry.isDownloaded) {
+                        downloadedLibraryBookIds.add(entry.bookId);
+                    }
                     libraryStatuses.put(entry.bookId, entry.status);
+                    if (!TextUtils.isEmpty(entry.localCacheKey)) {
+                        libraryLocalCacheKeys.put(entry.bookId, entry.localCacheKey);
+                    }
                 }
+                userLibraryService.syncLibrarySummary(activeUid, new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        Log.d(FIRESTORE_TAG, "LIBRARY_SUMMARY_SYNC_DONE uid=" + activeUid);
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        Log.e(FIRESTORE_TAG, "LIBRARY_SUMMARY_SYNC_FAIL uid=" + activeUid, error);
+                    }
+                });
+                loadLibraryBookSummaries(entries);
                 updateLibraryFilters();
                 if (entries.isEmpty()) {
                     showToast("Library is empty. Tap + to save a book.");
@@ -1203,32 +2090,98 @@ public class MainActivity extends AppCompatActivity {
         }));
     }
 
+    private void loadLibraryBookSummaries(List<LibraryEntry> entries) {
+        List<String> bookIds = new ArrayList<>();
+        for (LibraryEntry entry : entries) {
+            bookIds.add(entry.bookId);
+        }
+        bookCatalogService.fetchBookSummaries(bookIds, new FirestoreCallback<List<BookSummary>>() {
+            @Override
+            public void onSuccess(List<BookSummary> books) {
+                Map<String, BookSummary> booksById = new HashMap<>();
+                for (BookSummary book : books) {
+                    booksById.put(book.id, book);
+                }
+                loadedLibraryBooks.clear();
+                for (String bookId : bookIds) {
+                    BookSummary book = booksById.get(bookId);
+                    if (book != null) {
+                        loadedLibraryBooks.add(book);
+                    }
+                }
+                if (currentScreen == Screen.LIBRARY) {
+                    renderDynamicLibraryItems(loadedLibraryBooks);
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "LIBRARY_BOOKS_LOAD_FAIL uid=" + activeUid, error);
+                if (currentScreen == Screen.LIBRARY) {
+                    loadedLibraryBooks.clear();
+                    clearDynamicLibraryItems();
+                    updateLibraryFilters();
+                }
+            }
+        });
+    }
+
     private void loadPlayerQueue() {
-        bookCatalogService.fetchBookTitle(selectedBookId, new FirestoreCallback<String>() {
+        String loadingBookId = selectedBookId;
+        if (TextUtils.isEmpty(loadingBookId)) {
+            showToast("Select a book first");
+            return;
+        }
+        bookCatalogService.fetchBookTitle(loadingBookId, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String title) {
+                if (!loadingBookId.equals(selectedBookId)) {
+                    return;
+                }
                 selectedBookTitle = title;
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
-                } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-                    updateBackgroundPopupUi();
                 }
                 refreshPlaybackServiceIfActive();
             }
 
             @Override
             public void onError(Exception error) {
-                Log.e(FIRESTORE_TAG, "BOOK_TITLE_LOAD_FAIL bookId=" + selectedBookId, error);
+                Log.e(FIRESTORE_TAG, "BOOK_TITLE_LOAD_FAIL bookId=" + loadingBookId, error);
             }
         });
 
-        chapterService.fetchChapters(selectedBookId, new FirestoreCallback<List<Chapter>>() {
+        bookCatalogService.fetchBookSourceUrl(loadingBookId, new FirestoreCallback<String>() {
+            @Override
+            public void onSuccess(String sourceUrl) {
+                if (!loadingBookId.equals(selectedBookId)) {
+                    return;
+                }
+                if (!TextUtils.isEmpty(sourceUrl)) {
+                    selectedSourceUrl = sourceUrl;
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "BOOK_SOURCE_LOAD_FAIL bookId=" + loadingBookId, error);
+            }
+        });
+
+        chapterService.fetchChapters(loadingBookId, new FirestoreCallback<List<Chapter>>() {
             @Override
             public void onSuccess(List<Chapter> chapters) {
+                if (!loadingBookId.equals(selectedBookId)) {
+                    return;
+                }
                 playerQueue.clear();
                 playerQueue.addAll(chapters);
                 if (currentChapterIndex >= playerQueue.size()) {
                     currentChapterIndex = 0;
+                }
+                Chapter chapter = getCurrentChapter();
+                if (TextUtils.isEmpty(selectedSourceUrl) && chapter != null && !TextUtils.isEmpty(chapter.audioUrl)) {
+                    selectedSourceUrl = chapter.audioUrl;
                 }
                 playerPositionSeconds = clampPlayerPosition(playerPositionSeconds);
                 loadSavedPlaybackState();
@@ -1240,7 +2193,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception error) {
-                Log.e(FIRESTORE_TAG, "CHAPTER_LOAD_FAIL bookId=" + selectedBookId, error);
+                Log.e(FIRESTORE_TAG, "CHAPTER_LOAD_FAIL bookId=" + loadingBookId, error);
                 showToast("Chapter load failed");
             }
         });
@@ -1258,11 +2211,9 @@ public class MainActivity extends AppCompatActivity {
                 currentChapterIndex = findChapterIndex(state.chapterId);
                 playerPositionSeconds = clampPlayerPosition(state.positionSec);
                 playbackSpeedIndex = findPlaybackSpeedIndex(state.speed);
-                isPlaying = state.isPlaying;
+                isPlaying = mediaPlayer != null && mediaPlayer.isPlaying();
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
-                } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-                    updateBackgroundPopupUi();
                 }
                 refreshPlaybackServiceIfActive();
             }
@@ -1275,6 +2226,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void savePlaybackState() {
+        if (TextUtils.isEmpty(selectedBookId)) {
+            return;
+        }
         ensureAuthenticated(() -> {
             PlayerState state = new PlayerState(
                     selectedBookId,
@@ -1292,6 +2246,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private int getCurrentDurationSec() {
+        if (mediaDurationSeconds > 0) {
+            return mediaDurationSeconds;
+        }
         Chapter chapter = getCurrentChapter();
         return chapter == null || chapter.durationSec <= 0 ? DEFAULT_PLAYER_DURATION_SECONDS : chapter.durationSec;
     }

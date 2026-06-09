@@ -1,0 +1,104 @@
+{
+  "sources": [
+    {
+      "bookId": "ai-for-everyone",
+      "sourceTitle": "Direct MP3 sample - Part 1",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3"
+    },
+    {
+      "bookId": "atomic-habits",
+      "sourceTitle": "Direct MP3 sample - Part 2",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-02.mp3"
+    },
+    {
+      "bookId": "business-models-explained",
+      "sourceTitle": "Direct MP3 sample - Part 3",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-03.mp3"
+    },
+    {
+      "bookId": "chuyen-ke-cho-be",
+      "sourceTitle": "Direct MP3 sample - Part 4",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-04.mp3"
+    },
+    {
+      "bookId": "clean-code-principles",
+      "sourceTitle": "Direct MP3 sample - Part 5",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-05.mp3"
+    },
+    {
+      "bookId": "con-duong-hanh-phuc",
+      "sourceTitle": "Direct MP3 sample - Part 1",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3"
+    },
+    {
+      "bookId": "deep-work",
+      "sourceTitle": "Direct MP3 sample - Part 2",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-02.mp3"
+    },
+    {
+      "bookId": "hanh-trinh-khoi-nghiep",
+      "sourceTitle": "Direct MP3 sample - Part 3",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-03.mp3"
+    },
+    {
+      "bookId": "hoc-tap-thong-minh",
+      "sourceTitle": "Direct MP3 sample - Part 4",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-04.mp3"
+    },
+    {
+      "bookId": "lich-su-viet-nam-hien-dai",
+      "sourceTitle": "Direct MP3 sample - Part 5",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-05.mp3"
+    },
+    {
+      "bookId": "mindful-mornings",
+      "sourceTitle": "Direct MP3 sample - Part 1",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3"
+    },
+    {
+      "bookId": "nhung-nha-khoa-hoc-tre",
+      "sourceTitle": "Direct MP3 sample - Part 2",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-02.mp3"
+    },
+    {
+      "bookId": "sapiens-brief-history",
+      "sourceTitle": "Direct MP3 sample - Part 3",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-03.mp3"
+    },
+    {
+      "bookId": "startup-playbook",
+      "sourceTitle": "Direct MP3 sample - Part 4",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-04.mp3"
+    },
+    {
+      "bookId": "steve-jobs-biography",
+      "sourceTitle": "Direct MP3 sample - Part 5",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-05.mp3"
+    },
+    {
+      "bookId": "tam-ly-hoc-hanh-vi",
+      "sourceTitle": "Direct MP3 sample - Part 1",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3"
+    },
+    {
+      "bookId": "the-little-prince",
+      "sourceTitle": "Direct MP3 sample - Part 2",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-02.mp3"
+    },
+    {
+      "bookId": "thinking-fast-and-slow",
+      "sourceTitle": "Direct MP3 sample - Part 3",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-03.mp3"
+    },
+    {
+      "bookId": "truyen-ngan-sai-gon",
+      "sourceTitle": "Direct MP3 sample - Part 4",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-04.mp3"
+    },
+    {
+      "bookId": "tu-duy-tich-cuc",
+      "sourceTitle": "Direct MP3 sample - Part 5",
+      "sourceUrl": "https://www.gutenberg.org/files/23937/mp3/23937-05.mp3"
+    }
+  ]
+}

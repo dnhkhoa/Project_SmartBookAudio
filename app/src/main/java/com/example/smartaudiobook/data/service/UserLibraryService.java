@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.SetOptions;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -32,18 +33,27 @@ public class UserLibraryService {
     }
 
     public void addBook(String uid, String bookId, String status, FirestoreCallback<Void> callback) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("status", status);
-        data.put("addedAt", FieldValue.serverTimestamp());
-        data.put("lastOpenedAt", FieldValue.serverTimestamp());
-        data.put("lastChapterId", "");
-        data.put("lastPositionSec", 0);
-        db.collection("users")
+        com.google.firebase.firestore.DocumentReference entryRef = db.collection("users")
                 .document(uid)
                 .collection("library")
-                .document(bookId)
-                .set(data, SetOptions.merge())
-                .addOnSuccessListener(unused -> callback.onSuccess(null))
+                .document(bookId);
+        entryRef.get()
+                .addOnSuccessListener(snapshot -> {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("status", status);
+                    data.put("lastOpenedAt", FieldValue.serverTimestamp());
+                    if (!snapshot.exists()) {
+                        data.put("addedAt", FieldValue.serverTimestamp());
+                        data.put("lastChapterId", "");
+                        data.put("lastPositionSec", 0);
+                        data.put("isDownloaded", false);
+                    } else if (snapshot.getBoolean("isDownloaded") == null) {
+                        data.put("isDownloaded", false);
+                    }
+                    entryRef.set(data, SetOptions.merge())
+                            .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                            .addOnFailureListener(callback::onError);
+                })
                 .addOnFailureListener(callback::onError);
     }
 
@@ -56,13 +66,24 @@ public class UserLibraryService {
         data.put("lastOpenedAt", FieldValue.serverTimestamp());
         data.put("lastChapterId", "");
         data.put("lastPositionSec", 0);
+        data.put("isDownloaded", false);
         data.put("source", "manual");
         db.collection("users")
                 .document(uid)
                 .collection("library")
                 .document(bookId)
                 .set(data, SetOptions.merge())
-                .addOnSuccessListener(unused -> callback.onSuccess(bookId))
+                .addOnSuccessListener(unused -> syncLibrarySummary(uid, new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        callback.onSuccess(bookId);
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        callback.onError(error);
+                    }
+                }))
                 .addOnFailureListener(callback::onError);
     }
 
@@ -72,20 +93,53 @@ public class UserLibraryService {
                 .collection("library")
                 .document(bookId)
                 .delete()
-                .addOnSuccessListener(unused -> callback.onSuccess(null))
+                .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
                 .addOnFailureListener(callback::onError);
     }
 
     public void updateStatus(String uid, String bookId, String status, FirestoreCallback<Void> callback) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("status", status);
-        data.put("lastOpenedAt", FieldValue.serverTimestamp());
-        db.collection("users")
+        com.google.firebase.firestore.DocumentReference entryRef = db.collection("users")
                 .document(uid)
                 .collection("library")
-                .document(bookId)
-                .set(data, SetOptions.merge())
-                .addOnSuccessListener(unused -> callback.onSuccess(null))
+                .document(bookId);
+        entryRef.get()
+                .addOnSuccessListener(snapshot -> {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("status", normalizePersistentStatus(status));
+                    data.put("lastOpenedAt", FieldValue.serverTimestamp());
+                    if (!snapshot.exists()) {
+                        addNewLibraryEntryDefaults(data);
+                        data.put("isDownloaded", false);
+                    } else if (snapshot.getBoolean("isDownloaded") == null) {
+                        data.put("isDownloaded", false);
+                    }
+                    entryRef.set(data, SetOptions.merge())
+                            .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                            .addOnFailureListener(callback::onError);
+                })
+                .addOnFailureListener(callback::onError);
+    }
+
+    public void markDownloaded(String uid, String bookId, String localCacheKey, String status, FirestoreCallback<Void> callback) {
+        com.google.firebase.firestore.DocumentReference entryRef = db.collection("users")
+                .document(uid)
+                .collection("library")
+                .document(bookId);
+        entryRef.get()
+                .addOnSuccessListener(snapshot -> {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("status", normalizePersistentStatus(status));
+                    if (!snapshot.exists()) {
+                        addNewLibraryEntryDefaults(data);
+                    }
+                    data.put("isDownloaded", true);
+                    data.put("downloadedAt", FieldValue.serverTimestamp());
+                    data.put("lastOpenedAt", FieldValue.serverTimestamp());
+                    data.put("localCacheKey", localCacheKey == null ? "" : localCacheKey);
+                    entryRef.set(data, SetOptions.merge())
+                            .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                            .addOnFailureListener(callback::onError);
+                })
                 .addOnFailureListener(callback::onError);
     }
 
@@ -104,6 +158,44 @@ public class UserLibraryService {
                 .set(data, SetOptions.merge());
     }
 
+    public void syncLibrarySummary(String uid, FirestoreCallback<Void> callback) {
+        if (uid == null || uid.trim().isEmpty()) {
+            callback.onSuccess(null);
+            return;
+        }
+        db.collection("users")
+                .document(uid)
+                .collection("library")
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    List<String> savedBookIds = new ArrayList<>();
+                    List<String> downloadedBookIds = new ArrayList<>();
+                    for (com.google.firebase.firestore.DocumentSnapshot document : snapshot.getDocuments()) {
+                        String bookId = document.getId();
+                        savedBookIds.add(bookId);
+                        if (Boolean.TRUE.equals(document.getBoolean("isDownloaded"))) {
+                            downloadedBookIds.add(bookId);
+                        }
+                    }
+                    Collections.sort(savedBookIds);
+                    Collections.sort(downloadedBookIds);
+
+                    Map<String, Object> userUpdates = new HashMap<>();
+                    userUpdates.put("savedBookIds", savedBookIds);
+                    userUpdates.put("downloadedBookIds", downloadedBookIds);
+                    userUpdates.put("libraryBookCount", savedBookIds.size());
+                    userUpdates.put("downloadedBookCount", downloadedBookIds.size());
+                    userUpdates.put("updatedAt", FieldValue.serverTimestamp());
+
+                    db.collection("users")
+                            .document(uid)
+                            .set(userUpdates, SetOptions.merge())
+                            .addOnSuccessListener(unused -> callback.onSuccess(null))
+                            .addOnFailureListener(callback::onError);
+                })
+                .addOnFailureListener(callback::onError);
+    }
+
     private String buildCustomBookId(String title) {
         String normalized = title
                 .trim()
@@ -114,5 +206,18 @@ public class UserLibraryService {
             normalized = "untitled";
         }
         return "custom-" + normalized + "-" + System.currentTimeMillis();
+    }
+
+    private void addNewLibraryEntryDefaults(Map<String, Object> data) {
+        data.put("addedAt", FieldValue.serverTimestamp());
+        data.put("lastChapterId", "");
+        data.put("lastPositionSec", 0);
+    }
+
+    private String normalizePersistentStatus(String status) {
+        if (status == null || status.trim().isEmpty() || LibraryEntry.STATUS_DOWNLOADING.equals(status)) {
+            return LibraryEntry.STATUS_SAVED;
+        }
+        return status;
     }
 }
