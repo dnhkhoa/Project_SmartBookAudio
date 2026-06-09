@@ -1,6 +1,7 @@
 package com.example.smartaudiobook.data.service;
 
 import com.example.smartaudiobook.data.FirestoreCallback;
+import com.example.smartaudiobook.data.model.BookSummary;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.SetOptions;
@@ -18,20 +19,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class BookCatalogService {
     private final FirebaseFirestore db = FirebaseFirestore.getInstance();
-
-    public static class BookSummary {
-        public final String id;
-        public final String title;
-        public final String author;
-        public final String sourceUrl;
-
-        public BookSummary(String id, String title, String author, String sourceUrl) {
-            this.id = id;
-            this.title = title;
-            this.author = author;
-            this.sourceUrl = sourceUrl;
-        }
-    }
 
     public void fetchBookTitle(String bookId, FirestoreCallback<String> callback) {
         db.collection("books").document(bookId).get()
@@ -108,18 +95,7 @@ public class BookCatalogService {
                         if (completed.get()) {
                             return;
                         }
-                        String title = snapshot.getString("title");
-                        String author = snapshot.getString("author");
-                        String sourceUrl = snapshot.getString("sourceUrl");
-                        if (sourceUrl == null || sourceUrl.trim().isEmpty()) {
-                            sourceUrl = snapshot.getString("audioUrl");
-                        }
-                        summaries.add(new BookSummary(
-                                bookId,
-                                title == null || title.trim().isEmpty() ? bookId : title,
-                                author == null || author.trim().isEmpty() ? "User Author" : author,
-                                sourceUrl == null ? "" : sourceUrl
-                        ));
+                        summaries.add(BookSummary.fromSnapshot(snapshot));
                         if (pending.decrementAndGet() == 0) {
                             callback.onSuccess(summaries);
                         }
@@ -184,5 +160,60 @@ public class BookCatalogService {
             normalized = "untitled";
         }
         return "custom-" + normalized + "-" + System.currentTimeMillis();
+    }
+
+    public void searchBooksByTitle(String query, int limit, FirestoreCallback<List<BookSummary>> callback) {
+        String normalized = normalize(query);
+        if (normalized.isEmpty()) {
+            callback.onSuccess(new ArrayList<>());
+            return;
+        }
+
+        db.collection("books")
+                .orderBy("titleLower")
+                .startAt(normalized)
+                .endAt(normalized + "\uf8ff")
+                .limit(limit)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    List<BookSummary> results = new ArrayList<>();
+                    for (com.google.firebase.firestore.DocumentSnapshot document : snapshot.getDocuments()) {
+                        results.add(BookSummary.fromSnapshot(document));
+                    }
+                    callback.onSuccess(results);
+                })
+                .addOnFailureListener(error -> fallbackClientFilter(normalized, limit, callback, error));
+    }
+
+    private void fallbackClientFilter(
+            String normalized,
+            int limit,
+            FirestoreCallback<List<BookSummary>> callback,
+            Exception originalError
+    ) {
+        db.collection("books")
+                .limit(Math.max(20, limit * 4L))
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    List<BookSummary> results = new ArrayList<>();
+                    for (com.google.firebase.firestore.DocumentSnapshot document : snapshot.getDocuments()) {
+                        BookSummary book = BookSummary.fromSnapshot(document);
+                        if (normalize(book.title).contains(normalized) || normalize(book.id).contains(normalized)) {
+                            results.add(book);
+                            if (results.size() >= limit) {
+                                break;
+                            }
+                        }
+                    }
+                    callback.onSuccess(results);
+                })
+                .addOnFailureListener(err -> {
+                    // If even fallback fails, return the original error because it is usually more useful.
+                    callback.onError(originalError != null ? originalError : err);
+                });
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.US);
     }
 }

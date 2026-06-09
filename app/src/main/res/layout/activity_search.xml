@@ -167,6 +167,7 @@
             </HorizontalScrollView>
 
             <TextView
+                android:id="@+id/txtSearchMatchCount"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
@@ -175,10 +176,11 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <include layout="@layout/search_result_android_tts" />
-            <include layout="@layout/search_result_background_audio" />
-            <include layout="@layout/search_result_service_android" />
-            <include layout="@layout/search_result_media_session" />
+            <LinearLayout
+                android:id="@+id/searchResultsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
             <TextView
                 android:layout_width="match_parent"

@@ -12,6 +12,25 @@ import java.util.Map;
 public class ProfileService {
     private final FirebaseFirestore db = FirebaseFirestore.getInstance();
 
+    public void findUserIdByEmail(String email, FirestoreCallback<String> callback) {
+        if (email == null || email.trim().isEmpty()) {
+            callback.onSuccess("");
+            return;
+        }
+        db.collection("users")
+                .whereEqualTo("email", email.trim().toLowerCase(java.util.Locale.US))
+                .limit(1)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (snapshot.isEmpty()) {
+                        callback.onSuccess("");
+                        return;
+                    }
+                    callback.onSuccess(snapshot.getDocuments().get(0).getId());
+                })
+                .addOnFailureListener(callback::onError);
+    }
+
     public void ensureProfile(String uid, String email, FirestoreCallback<Void> callback) {
         db.collection("users").document(uid).get()
                 .addOnSuccessListener(snapshot -> {
@@ -50,19 +69,23 @@ public class ProfileService {
                 .addOnFailureListener(callback::onError);
     }
 
-    public void updatePreference(String uid, String key, Object value, FirestoreCallback<Void> callback) {
-        Map<String, Object> data = new HashMap<>();
-        data.put(key, value);
-        data.put("updatedAt", FieldValue.serverTimestamp());
-        db.collection("users").document(uid).set(data, SetOptions.merge())
-                .addOnSuccessListener(unused -> callback.onSuccess(null))
-                .addOnFailureListener(callback::onError);
+    public void updateLibraryStats(String uid, int bookCount) {
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("libraryBookCount", bookCount);
+        updates.put("updatedAt", FieldValue.serverTimestamp());
+        db.collection("users").document(uid).set(updates, SetOptions.merge());
     }
 
-    public void updateLibraryStats(String uid, int booksCount) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("booksCount", booksCount);
-        data.put("updatedAt", FieldValue.serverTimestamp());
-        db.collection("users").document(uid).set(data, SetOptions.merge());
+    public void updatePreference(String uid, String key, String value, FirestoreCallback<Void> callback) {
+        Map<String, Object> preferences = new HashMap<>();
+        preferences.put(key, value);
+
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("preferences", preferences);
+        updates.put("updatedAt", FieldValue.serverTimestamp());
+
+        db.collection("users").document(uid).set(updates, SetOptions.merge())
+                .addOnSuccessListener(unused -> callback.onSuccess(null))
+                .addOnFailureListener(callback::onError);
     }
 }
