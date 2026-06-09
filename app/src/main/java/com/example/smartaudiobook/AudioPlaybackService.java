@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
@@ -20,6 +21,7 @@ public class AudioPlaybackService extends Service {
     public static final String ACTION_SEEK_BY = "com.example.smartaudiobook.action.SEEK_BY";
     public static final String ACTION_SEEK_TO = "com.example.smartaudiobook.action.SEEK_TO";
     public static final String ACTION_SET_SPEED = "com.example.smartaudiobook.action.SET_SPEED";
+    public static final String ACTION_SYNC_STATE = "com.example.smartaudiobook.action.SYNC_STATE";
     public static final String ACTION_STATE_CHANGED = "com.example.smartaudiobook.action.STATE_CHANGED";
 
     public static final String EXTRA_BOOK_ID = "extra.BOOK_ID";
@@ -30,6 +32,7 @@ public class AudioPlaybackService extends Service {
     public static final String EXTRA_SEEK_DELTA_SEC = "extra.SEEK_DELTA_SEC";
     public static final String EXTRA_SPEED = "extra.SPEED";
     public static final String EXTRA_IS_PLAYING = "extra.IS_PLAYING";
+    public static final String EXTRA_FROM_NOTIFICATION = "extra.FROM_NOTIFICATION";
 
     private static final String CHANNEL_ID = "smart_audio_playback";
     private static final int NOTIFICATION_ID = 3751;
@@ -78,8 +81,9 @@ public class AudioPlaybackService extends Service {
             return START_NOT_STICKY;
         }
 
-        readMetadata(intent);
         String action = intent.getAction();
+        boolean fromNotification = intent.getBooleanExtra(EXTRA_FROM_NOTIFICATION, false);
+        readMetadata(intent, !fromNotification);
         if (ACTION_PLAY.equals(action)) {
             isPlaying = true;
         } else if (ACTION_PAUSE.equals(action)) {
@@ -90,6 +94,8 @@ public class AudioPlaybackService extends Service {
             positionSec = clamp(intent.getIntExtra(EXTRA_POSITION_SEC, positionSec));
         } else if (ACTION_SET_SPEED.equals(action)) {
             speed = Math.max(0.5f, Math.min(2.0f, intent.getFloatExtra(EXTRA_SPEED, speed)));
+        } else if (ACTION_SYNC_STATE.equals(action)) {
+            positionSec = clamp(intent.getIntExtra(EXTRA_POSITION_SEC, positionSec));
         }
         publishState();
         return isPlaying ? START_STICKY : START_NOT_STICKY;
@@ -108,14 +114,16 @@ public class AudioPlaybackService extends Service {
         super.onDestroy();
     }
 
-    private void readMetadata(Intent intent) {
+    private void readMetadata(Intent intent, boolean includePlaybackState) {
         bookId = intent.getStringExtra(EXTRA_BOOK_ID) == null ? bookId : intent.getStringExtra(EXTRA_BOOK_ID);
         bookTitle = fallback(intent.getStringExtra(EXTRA_BOOK_TITLE), bookTitle);
         chapterTitle = fallback(intent.getStringExtra(EXTRA_CHAPTER_TITLE), chapterTitle);
         durationSec = Math.max(1, intent.getIntExtra(EXTRA_DURATION_SEC, durationSec));
-        positionSec = clamp(intent.getIntExtra(EXTRA_POSITION_SEC, positionSec));
-        speed = intent.getFloatExtra(EXTRA_SPEED, speed);
-        isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, isPlaying);
+        if (includePlaybackState) {
+            positionSec = clamp(intent.getIntExtra(EXTRA_POSITION_SEC, positionSec));
+            speed = intent.getFloatExtra(EXTRA_SPEED, speed);
+            isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, isPlaying);
+        }
     }
 
     private void publishState() {
@@ -135,6 +143,12 @@ public class AudioPlaybackService extends Service {
             mediaSession.setPlaybackState(new PlaybackState.Builder()
                     .setActions(actions)
                     .setState(state, positionSec * 1000L, speed)
+                    .build());
+            mediaSession.setMetadata(new MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, bookTitle)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, chapterTitle)
+                    .putString(MediaMetadata.METADATA_KEY_ALBUM, getString(R.string.app_name))
+                    .putLong(MediaMetadata.METADATA_KEY_DURATION, durationSec * 1000L)
                     .build());
         }
 
@@ -193,6 +207,7 @@ public class AudioPlaybackService extends Service {
                     .setMediaSession(mediaSession.getSessionToken())
                     .setShowActionsInCompactView(0, 1, 2));
             builder.setVisibility(Notification.VISIBILITY_PUBLIC);
+            builder.setCategory(Notification.CATEGORY_TRANSPORT);
         }
         return builder.build();
     }
@@ -208,6 +223,7 @@ public class AudioPlaybackService extends Service {
         intent.putExtra(EXTRA_DURATION_SEC, durationSec);
         intent.putExtra(EXTRA_SPEED, speed);
         intent.putExtra(EXTRA_IS_PLAYING, isPlaying);
+        intent.putExtra(EXTRA_FROM_NOTIFICATION, true);
         return PendingIntent.getService(
                 this,
                 action.hashCode() + seekDeltaSec,

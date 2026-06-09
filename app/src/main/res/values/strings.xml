@@ -74,17 +74,6 @@
     <string name="full_player_pause_icon">II</string>
     <string name="full_player_speed">1.0x</string>
     <string name="full_player_chapter_button">Chapter</string>
-    <string name="background_popup_title">Screen off / Background playback</string>
-    <string name="background_popup_subtitle">Audio continues playing via service</string>
-    <string name="background_popup_time">9:41</string>
-    <string name="background_popup_date">Monday, May 11</string>
-    <string name="background_popup_source">Khoa Audio</string>
-    <string name="background_popup_chapter">Chapter 2 - Playing</string>
-    <string name="background_popup_previous">|&lt;</string>
-    <string name="background_popup_next">&gt;|</string>
-    <string name="background_popup_card_title">Pop-up background playing</string>
-    <string name="background_popup_card_body">This mockup demonstrates the requirement: audio continues playing when the screen is off.</string>
-    <string name="background_popup_return">Return to player</string>
     <string name="playback_channel_name">Audiobook playback</string>
     <string name="playback_channel_description">Media controls for background audiobook playback.</string>
 

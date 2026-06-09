@@ -84,8 +84,7 @@ public class MainActivity extends AppCompatActivity {
         PROFILE,
         DETAIL,
         EBOOK_DETAIL,
-        FULL_PLAYER,
-        BACKGROUND_POPUP
+        FULL_PLAYER
     }
 
     private static final int DEFAULT_PLAYER_DURATION_SECONDS = 18 * 60 + 30;
@@ -140,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isSourceUrlLoading = false;
     private boolean isAudioDownloading = false;
     private boolean librarySortAscending = true;
+    private boolean playbackNotificationActive = false;
     private String activeUid = "";
     private String activeAccountEmail = "";
     private String selectedBookId = "";
@@ -295,9 +295,6 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case FULL_PLAYER:
                     showFullPlayer();
-                    break;
-                case BACKGROUND_POPUP:
-                    showBackgroundPopup();
                     break;
                 case HOME:
                 default:
@@ -598,19 +595,6 @@ public class MainActivity extends AppCompatActivity {
         refreshPlaybackServiceIfActive();
     }
 
-    private void showBackgroundPopup() {
-        currentScreen = Screen.BACKGROUND_POPUP;
-        preparePlayerWindow();
-        setContentView(R.layout.activity_background_popup);
-        findViewById(R.id.btnReturnToPlayer).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.backgroundNotification).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.btnBackgroundPrevious).setOnClickListener(v -> seekPlayerBy(-15));
-        findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> handlePlayPause());
-        findViewById(R.id.btnBackgroundNext).setOnClickListener(v -> seekPlayerBy(15));
-        updateBackgroundPopupUi();
-        refreshPlaybackServiceIfActive();
-    }
-
     private boolean handleProgressTouch(View view, MotionEvent event) {
         if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_UP) {
             int width = view.getWidth();
@@ -619,7 +603,7 @@ public class MainActivity extends AppCompatActivity {
                 playerPositionSeconds = clampPlayerPosition((int) (getCurrentDurationSec() * fraction));
                 seekMediaPlayerTo(playerPositionSeconds);
                 updateFullPlayerUi();
-                if (isPlaying) {
+                if (shouldSyncPlaybackService()) {
                     startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
                 }
                 savePlaybackState();
@@ -636,7 +620,7 @@ public class MainActivity extends AppCompatActivity {
         playerPositionSeconds = clampPlayerPosition(playerPositionSeconds + deltaSeconds);
         seekMediaPlayerTo(playerPositionSeconds);
         updateVisiblePlayerUi();
-        if (isPlaying) {
+        if (shouldSyncPlaybackService()) {
             startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
         }
         savePlaybackState();
@@ -979,6 +963,7 @@ public class MainActivity extends AppCompatActivity {
                 mediaDurationSeconds = duration;
             }
             syncPlayerUi();
+            syncPlaybackNotificationState();
         } catch (Exception error) {
             Log.e(FIRESTORE_TAG, "AUDIO_POSITION_SYNC_FAIL", error);
         }
@@ -987,13 +972,11 @@ public class MainActivity extends AppCompatActivity {
     private void syncPlayerUi() {
         if (currentScreen == Screen.FULL_PLAYER) {
             updateFullPlayerUi();
-        } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-            updateBackgroundPopupUi();
         }
     }
 
     private boolean isPlayerScreen() {
-        return currentScreen == Screen.FULL_PLAYER || currentScreen == Screen.BACKGROUND_POPUP;
+        return currentScreen == Screen.FULL_PLAYER;
     }
 
     private void applyPlaybackSpeed() {
@@ -1060,7 +1043,7 @@ public class MainActivity extends AppCompatActivity {
             applyPlaybackSpeed();
         }
         updateFullPlayerUi();
-        if (isPlaying) {
+        if (shouldSyncPlaybackService()) {
             startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
         }
         savePlaybackState();
@@ -1103,25 +1086,24 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void updateBackgroundPopupUi() {
-        TextView playPause = findViewById(R.id.btnBackgroundPlayPause);
-        TextView title = findViewById(R.id.backgroundAudioTitle);
-        TextView chapter = findViewById(R.id.backgroundAudioChapter);
-        playPause.setText(isPlayerPreparing || isSourceUrlLoading || isAudioDownloading ? "..." : (isPlaying ? getString(R.string.full_player_pause_icon) : ">"));
-        title.setText(selectedBookTitle);
-        chapter.setText(getCurrentChapterTitle() + " - " + formatTime(playerPositionSeconds));
-    }
-
     private void updateVisiblePlayerUi() {
         if (currentScreen == Screen.FULL_PLAYER) {
             updateFullPlayerUi();
-        } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-            updateBackgroundPopupUi();
         }
     }
 
     private void startPlaybackService(String action) {
         startPlaybackService(action, 0);
+    }
+
+    private void syncPlaybackNotificationState() {
+        if (shouldSyncPlaybackService()) {
+            startPlaybackService(AudioPlaybackService.ACTION_SYNC_STATE);
+        }
+    }
+
+    private boolean shouldSyncPlaybackService() {
+        return isPlaying || playbackNotificationActive;
     }
 
     private void startPlaybackService(String action, int seekDeltaSeconds) {
@@ -1143,6 +1125,14 @@ public class MainActivity extends AppCompatActivity {
         } else {
             startService(intent);
         }
+        if (AudioPlaybackService.ACTION_PLAY.equals(action)
+                || AudioPlaybackService.ACTION_PAUSE.equals(action)
+                || AudioPlaybackService.ACTION_SEEK_TO.equals(action)
+                || AudioPlaybackService.ACTION_SEEK_BY.equals(action)
+                || AudioPlaybackService.ACTION_SYNC_STATE.equals(action)
+                || AudioPlaybackService.ACTION_SET_SPEED.equals(action)) {
+            playbackNotificationActive = true;
+        }
     }
 
     private boolean shouldStartForeground(String action) {
@@ -1151,7 +1141,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshPlaybackServiceIfActive() {
-        if (currentScreen != Screen.FULL_PLAYER && currentScreen != Screen.BACKGROUND_POPUP) {
+        if (currentScreen != Screen.FULL_PLAYER) {
             return;
         }
         if (isPlaying) {
@@ -1164,15 +1154,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         selectedBookTitle = fallback(intent.getStringExtra(AudioPlaybackService.EXTRA_BOOK_TITLE), selectedBookTitle);
-        playerPositionSeconds = clampPlayerPosition(intent.getIntExtra(
+        int servicePositionSeconds = clampPlayerPosition(intent.getIntExtra(
                 AudioPlaybackService.EXTRA_POSITION_SEC,
                 playerPositionSeconds
         ));
+        boolean shouldSeekLocalPlayer = Math.abs(servicePositionSeconds - playerPositionSeconds) > 1;
+        playerPositionSeconds = servicePositionSeconds;
         playbackSpeedIndex = findPlaybackSpeedIndex(intent.getFloatExtra(
                 AudioPlaybackService.EXTRA_SPEED,
                 getPlaybackSpeedValue()
         ));
-        seekMediaPlayerTo(playerPositionSeconds);
+        if (shouldSeekLocalPlayer) {
+            seekMediaPlayerTo(playerPositionSeconds);
+        }
 
         boolean shouldPlay = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
         if (shouldPlay) {
@@ -2018,8 +2012,6 @@ public class MainActivity extends AppCompatActivity {
                 selectedBookTitle = title;
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
-                } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-                    updateBackgroundPopupUi();
                 }
                 refreshPlaybackServiceIfActive();
             }
@@ -2093,8 +2085,6 @@ public class MainActivity extends AppCompatActivity {
                 isPlaying = mediaPlayer != null && mediaPlayer.isPlaying();
                 if (currentScreen == Screen.FULL_PLAYER) {
                     updateFullPlayerUi();
-                } else if (currentScreen == Screen.BACKGROUND_POPUP) {
-                    updateBackgroundPopupUi();
                 }
                 refreshPlaybackServiceIfActive();
             }
