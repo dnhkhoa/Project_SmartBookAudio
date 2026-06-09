@@ -138,7 +138,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean isPlayerPreparing = false;
     private boolean isSourceUrlLoading = false;
     private boolean isAudioDownloading = false;
-    private boolean librarySortAscending = true;
     private boolean playbackNotificationActive = false;
     private String activeUid = "";
     private String activeAccountEmail = "";
@@ -439,8 +438,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
-        findViewById(R.id.btnLibrarySort).setOnClickListener(v -> sortLibraryItems());
-        findViewById(R.id.btnLibraryAdd).setOnClickListener(v -> showCreateAudioBookDialog());
         findViewById(R.id.libraryCreateCard).setOnClickListener(v -> showCreateAudioBookDialog());
         hideStaticLibraryItems();
         bindLibraryFilters();
@@ -1783,22 +1780,6 @@ public class MainActivity extends AppCompatActivity {
                 || normalized.contains(".opus")
                 || normalized.contains(".m3u8");
         return webUrl && !blockedPageUrl && directAudioUrl;
-    }
-
-    private void sortLibraryItems() {
-        if (loadedLibraryBooks.isEmpty()) {
-            showToast("Library is empty");
-            return;
-        }
-        if (librarySortAscending) {
-            loadedLibraryBooks.sort((first, second) -> first.title.compareToIgnoreCase(second.title));
-            showToast("Sort: A-Z");
-        } else {
-            loadedLibraryBooks.sort((first, second) -> second.title.compareToIgnoreCase(first.title));
-            showToast("Sort: Z-A");
-        }
-        librarySortAscending = !librarySortAscending;
-        renderDynamicLibraryItems(loadedLibraryBooks);
     }
 
     private void searchBooks() {

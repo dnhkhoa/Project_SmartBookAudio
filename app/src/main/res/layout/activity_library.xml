@@ -35,7 +35,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toStartOf="@id/btnLibraryAdd"
+                    app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent">
 
@@ -55,34 +55,6 @@
                         android:textColor="@color/text_gray"
                         android:textSize="14sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/btnLibrarySort"
-                    android:layout_width="44dp"
-                    android:layout_height="28dp"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginEnd="48dp"
-                    android:background="@drawable/bg_chip_soft"
-                    android:gravity="center"
-                    android:text="Sort"
-                    android:textColor="@color/primary_blue"
-                    android:textSize="10sp"
-                    android:textStyle="bold"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintTop_toTopOf="parent" />
-
-                <TextView
-                    android:id="@+id/btnLibraryAdd"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="@drawable/bg_library_plus_button"
-                    android:gravity="center"
-                    android:text="@string/library_add"
-                    android:textColor="@color/primary_blue"
-                    android:textSize="18sp"
-                    android:textStyle="bold"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintTop_toTopOf="parent" />
             </androidx.constraintlayout.widget.ConstraintLayout>
 
             <HorizontalScrollView

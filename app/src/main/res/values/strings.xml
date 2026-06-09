@@ -79,7 +79,6 @@
 
     <string name="library_title">Library</string>
     <string name="library_subtitle">Manage created books</string>
-    <string name="library_add">+</string>
     <string name="library_filter_all">All</string>
     <string name="library_filter_listening">Listening</string>
     <string name="library_filter_downloaded">Downloaded</string>
