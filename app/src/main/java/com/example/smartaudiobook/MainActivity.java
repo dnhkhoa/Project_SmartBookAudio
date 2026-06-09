@@ -129,6 +129,7 @@ public class MainActivity extends AppCompatActivity {
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$", Pattern.CASE_INSENSITIVE);
     private EditText searchInput;
+    private LinearLayout exploreAudiobooksContainer;
     private LinearLayout searchResultsContainer;
     private TextView searchMatchCountView;
     private Screen currentScreen = Screen.HOME;
@@ -397,14 +398,28 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.EXPLORE;
         prepareLightWindow();
         setContentView(R.layout.activity_explore);
+        exploreAudiobooksContainer = findViewById(R.id.allAudiobooksContainer);
+        EditText exploreSearchInput = findViewById(R.id.edtExploreSearch);
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
         findViewById(R.id.navProfile).setOnClickListener(v -> navigator.switchTab(Screen.PROFILE));
         findViewById(R.id.btnOpenSearch).setOnClickListener(v -> navigator.navigateTo(Screen.SEARCH));
+        exploreSearchInput.setOnEditorActionListener((textView, actionId, keyEvent) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                String query = exploreSearchInput.getText().toString().trim();
+                if (!query.isEmpty()) {
+                    navigator.navigateTo(Screen.SEARCH);
+                    searchKeyword(query);
+                    return true;
+                }
+            }
+            return false;
+        });
         findViewById(R.id.topicAi).setOnClickListener(v -> openTopic("AI"));
         findViewById(R.id.topicData).setOnClickListener(v -> openTopic("Data"));
         findViewById(R.id.topicSkills).setOnClickListener(v -> openTopic("Skills"));
         findViewById(R.id.topicLanguages).setOnClickListener(v -> openTopic("Languages"));
+        loadAllAudiobooks();
     }
 
     private void showSearch() {
@@ -1243,6 +1258,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateLibraryFilters() {
+        if (currentScreen != Screen.LIBRARY) {
+            return;
+        }
         setLibraryFilterState(R.id.filterAll, selectedLibraryFilter == 0);
         setLibraryFilterState(R.id.filterListening, selectedLibraryFilter == 1);
         setLibraryFilterState(R.id.filterDownloaded, selectedLibraryFilter == 2);
@@ -1275,6 +1293,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void setLibraryFilterState(int viewId, boolean selected) {
         TextView filter = findViewById(viewId);
+        if (filter == null) {
+            return;
+        }
         filter.setBackgroundResource(selected ? R.drawable.bg_button_gradient : R.drawable.bg_chip_soft);
         filter.setTextColor(getColor(selected ? android.R.color.white : R.color.primary_blue));
     }
@@ -1822,6 +1843,33 @@ public class MainActivity extends AppCompatActivity {
         return webUrl && !blockedPageUrl && directAudioUrl;
     }
 
+    private void loadAllAudiobooks() {
+        if (exploreAudiobooksContainer == null) {
+            return;
+        }
+        renderBookActionList(
+                exploreAudiobooksContainer,
+                new ArrayList<>(),
+                getString(R.string.all_audiobooks_loading)
+        );
+        bookCatalogService.fetchAllBooks(20, new FirestoreCallback<List<BookSummary>>() {
+            @Override
+            public void onSuccess(List<BookSummary> books) {
+                if (currentScreen == Screen.EXPLORE) {
+                    renderBookActionList(exploreAudiobooksContainer, books, getString(R.string.all_audiobooks_empty));
+                }
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "ALL_AUDIOBOOKS_LOAD_FAIL", error);
+                if (currentScreen == Screen.EXPLORE) {
+                    renderBookActionList(exploreAudiobooksContainer, new ArrayList<>(), getString(R.string.all_audiobooks_load_failed));
+                }
+            }
+        });
+    }
+
     private void searchBooks() {
         if (searchInput == null) {
             return;
@@ -1886,32 +1934,56 @@ public class MainActivity extends AppCompatActivity {
         if (searchResultsContainer == null) {
             return;
         }
-        searchResultsContainer.removeAllViews();
+        renderBookActionList(searchResultsContainer, books, getString(R.string.search_no_results));
+    }
+
+    private void renderBookActionList(LinearLayout container, List<BookSummary> books, String emptyMessage) {
+        if (container == null) {
+            return;
+        }
+        container.removeAllViews();
 
         if (books == null || books.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText("No results");
+            empty.setText(emptyMessage);
             empty.setTextColor(getResources().getColor(R.color.text_gray));
             empty.setTextSize(12f);
             empty.setPadding(0, 18, 0, 0);
-            searchResultsContainer.addView(empty);
+            container.addView(empty);
             return;
         }
 
         for (BookSummary book : books) {
-            View item = getLayoutInflater().inflate(R.layout.item_search_result, searchResultsContainer, false);
-            TextView title = item.findViewById(R.id.title);
-            TextView subtitle = item.findViewById(R.id.subtitle);
-            View play = item.findViewById(R.id.playButton);
-
-            title.setText(book.title);
-            subtitle.setText(book.author);
-
-            item.setOnClickListener(v -> openBookDetail(book.id));
-            play.setOnClickListener(v -> openFullPlayer(book.id));
-
-            searchResultsContainer.addView(item);
+            container.addView(createBookActionItem(container, book));
         }
+    }
+
+    private View createBookActionItem(ViewGroup parent, BookSummary book) {
+        View item = getLayoutInflater().inflate(R.layout.item_search_result, parent, false);
+        TextView title = item.findViewById(R.id.title);
+        TextView subtitle = item.findViewById(R.id.subtitle);
+        View play = item.findViewById(R.id.playButton);
+        View add = item.findViewById(R.id.addButton);
+        View download = item.findViewById(R.id.downloadButton);
+
+        title.setText(book.title);
+        subtitle.setText(book.author);
+
+        item.setOnClickListener(v -> openBookDetail(book.id));
+        play.setOnClickListener(v -> openFullPlayer(book.id, book.sourceUrl));
+        add.setOnClickListener(v -> addLibraryItem(book.id));
+        download.setOnClickListener(v -> requestAudiobookDownload(book));
+        return item;
+    }
+
+    private void requestAudiobookDownload(BookSummary book) {
+        ensureAuthenticated(() -> {
+            if (TextUtils.isEmpty(book.sourceUrl)) {
+                showToast(getString(R.string.no_audio_source));
+                return;
+            }
+            showToast(getString(R.string.download_not_ready));
+        });
     }
 
     private void ensureAuthenticated(Runnable onReady) {

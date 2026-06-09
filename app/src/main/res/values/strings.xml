@@ -125,6 +125,15 @@
     <string name="languages">Languages</string>
     <string name="books_24">24 books</string>
     <string name="recommend_for_you">Recommend for you</string>
+    <string name="all_audiobooks">All Audiobooks</string>
+    <string name="all_audiobooks_loading">Loading audiobooks...</string>
+    <string name="all_audiobooks_empty">No audiobooks available</string>
+    <string name="all_audiobooks_load_failed">Audiobooks load failed</string>
+    <string name="search_no_results">No results</string>
+    <string name="download_label">Download</string>
+    <string name="add_label">Add</string>
+    <string name="download_not_ready">Offline download will be connected in the next step</string>
+    <string name="no_audio_source">No audio source available</string>
     <string name="clean_code_notes">Clean Code Notes</string>
     <string name="programming_documents">Programming Documents - 58 mins</string>
     <string name="deep_work_summary">Deep Work Summary</string>

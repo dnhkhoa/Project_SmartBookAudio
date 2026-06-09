@@ -233,6 +233,19 @@ public class BookCatalogService {
                 .addOnFailureListener(error -> fallbackClientFilter(normalized, limit, callback, error));
     }
 
+    public void fetchAllBooks(int limit, FirestoreCallback<List<BookSummary>> callback) {
+        db.collection("books")
+                .orderBy("titleLower")
+                .limit(limit)
+                .get()
+                .addOnSuccessListener(snapshot -> callback.onSuccess(toBookSummaries(snapshot.getDocuments())))
+                .addOnFailureListener(error -> db.collection("books")
+                        .limit(limit)
+                        .get()
+                        .addOnSuccessListener(snapshot -> callback.onSuccess(toBookSummaries(snapshot.getDocuments())))
+                        .addOnFailureListener(callback::onError));
+    }
+
     private void fallbackClientFilter(
             String normalized,
             int limit,
@@ -263,6 +276,14 @@ public class BookCatalogService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.US);
+    }
+
+    private List<BookSummary> toBookSummaries(List<com.google.firebase.firestore.DocumentSnapshot> documents) {
+        List<BookSummary> books = new ArrayList<>();
+        for (com.google.firebase.firestore.DocumentSnapshot document : documents) {
+            books.add(BookSummary.fromSnapshot(document));
+        }
+        return books;
     }
 
     private String fallback(String preferred, String fallback) {
