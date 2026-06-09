@@ -596,7 +596,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.fullPlayerProgress).setOnTouchListener((view, event) -> handleProgressTouch(view, event));
         updateFullPlayerUi();
         loadPlayerQueue();
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+        refreshPlaybackServiceIfActive();
     }
 
     private void showBackgroundPopup() {
@@ -609,7 +609,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnBackgroundPlayPause).setOnClickListener(v -> handlePlayPause());
         findViewById(R.id.btnBackgroundNext).setOnClickListener(v -> seekPlayerBy(15));
         updateBackgroundPopupUi();
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+        refreshPlaybackServiceIfActive();
     }
 
     private boolean handleProgressTouch(View view, MotionEvent event) {
@@ -620,7 +620,9 @@ public class MainActivity extends AppCompatActivity {
                 playerPositionSeconds = clampPlayerPosition((int) (getCurrentDurationSec() * fraction));
                 seekMediaPlayerTo(playerPositionSeconds);
                 updateFullPlayerUi();
-                startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+                if (isPlaying) {
+                    startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+                }
                 savePlaybackState();
             }
             if (event.getAction() == MotionEvent.ACTION_UP) {
@@ -635,7 +637,9 @@ public class MainActivity extends AppCompatActivity {
         playerPositionSeconds = clampPlayerPosition(playerPositionSeconds + deltaSeconds);
         seekMediaPlayerTo(playerPositionSeconds);
         updateVisiblePlayerUi();
-        startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+        if (isPlaying) {
+            startPlaybackService(AudioPlaybackService.ACTION_SEEK_TO);
+        }
         savePlaybackState();
         showToast("Position " + formatTime(playerPositionSeconds));
     }
@@ -1017,6 +1021,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void releaseMediaPlayer() {
+        boolean wasPlaying = isPlaying;
         handler.removeCallbacks(playerProgressRunnable);
         isPlaying = false;
         isPlayerPreparing = false;
@@ -1032,12 +1037,18 @@ public class MainActivity extends AppCompatActivity {
             }
             mediaPlayer = null;
         }
+        if (wasPlaying) {
+            startPlaybackService(AudioPlaybackService.ACTION_PAUSE);
+        }
     }
 
     private void syncBackgroundPlayback() {
+        if (!isPlaying) {
+            return;
+        }
         // Keep audio running in a foreground service when "playing" so it continues outside the app UI.
         Intent intent = new Intent(this, AudioPlaybackService.class)
-                .setAction(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+                .setAction(AudioPlaybackService.ACTION_PLAY);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ContextCompat.startForegroundService(this, intent);
         } else {
@@ -1049,7 +1060,9 @@ public class MainActivity extends AppCompatActivity {
         playbackSpeedIndex = (playbackSpeedIndex + 1) % PLAYBACK_SPEEDS.length;
         applyPlaybackSpeed();
         updateFullPlayerUi();
-        startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
+        if (isPlaying) {
+            startPlaybackService(AudioPlaybackService.ACTION_SET_SPEED);
+        }
         savePlaybackState();
         showToast("Speed " + PLAYBACK_SPEEDS[playbackSpeedIndex]);
     }
@@ -1141,7 +1154,9 @@ public class MainActivity extends AppCompatActivity {
         if (currentScreen != Screen.FULL_PLAYER && currentScreen != Screen.BACKGROUND_POPUP) {
             return;
         }
-        startPlaybackService(isPlaying ? AudioPlaybackService.ACTION_PLAY : AudioPlaybackService.ACTION_PAUSE);
+        if (isPlaying) {
+            startPlaybackService(AudioPlaybackService.ACTION_PLAY);
+        }
     }
 
     private void handlePlaybackServiceState(Intent intent) {
@@ -1153,12 +1168,52 @@ public class MainActivity extends AppCompatActivity {
                 AudioPlaybackService.EXTRA_POSITION_SEC,
                 playerPositionSeconds
         ));
-        isPlaying = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
         playbackSpeedIndex = findPlaybackSpeedIndex(intent.getFloatExtra(
                 AudioPlaybackService.EXTRA_SPEED,
                 getPlaybackSpeedValue()
         ));
+        applyPlaybackSpeed();
+        seekMediaPlayerTo(playerPositionSeconds);
+
+        boolean shouldPlay = intent.getBooleanExtra(AudioPlaybackService.EXTRA_IS_PLAYING, isPlaying);
+        if (shouldPlay) {
+            resumePreparedAudioFromNotification();
+        } else {
+            pausePreparedAudioFromNotification();
+        }
         updateVisiblePlayerUi();
+    }
+
+    private void resumePreparedAudioFromNotification() {
+        if (mediaPlayer == null || isPlayerPreparing || isAudioDownloading || isSourceUrlLoading) {
+            isPlaying = false;
+            return;
+        }
+        try {
+            if (!mediaPlayer.isPlaying()) {
+                mediaPlayer.start();
+            }
+            isPlaying = true;
+            handler.removeCallbacks(playerProgressRunnable);
+            handler.postDelayed(playerProgressRunnable, 1000);
+        } catch (Exception error) {
+            Log.e(FIRESTORE_TAG, "AUDIO_NOTIFICATION_RESUME_FAIL", error);
+            releaseMediaPlayer();
+        }
+    }
+
+    private void pausePreparedAudioFromNotification() {
+        if (mediaPlayer != null) {
+            try {
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.pause();
+                }
+            } catch (Exception error) {
+                Log.e(FIRESTORE_TAG, "AUDIO_NOTIFICATION_PAUSE_FAIL", error);
+            }
+        }
+        isPlaying = false;
+        handler.removeCallbacks(playerProgressRunnable);
     }
 
     private void requestNotificationPermissionIfNeeded() {
