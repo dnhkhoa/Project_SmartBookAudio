@@ -91,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
     private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
     private static final String PREFS_AUTH = "smartbook_auth";
+    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v5_full_schema_migrated_";
     private static final String DEFAULT_BOOK_ID = "clean-code-principles";
     private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
     private static final String BOOK_ANDROID = "atomic-habits";
@@ -141,6 +142,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean playbackNotificationActive = false;
     private String activeUid = "";
     private String activeAccountEmail = "";
+    private String activeDisplayName = "";
     private String selectedBookId = "";
     private String selectedBookTitle = "";
     private String selectedSourceUrl = "";
@@ -1497,6 +1499,7 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     authPreferences.edit().clear().apply();
                 }
+                runFirebaseSchemaMigration();
                 Toast.makeText(MainActivity.this, "Login success", Toast.LENGTH_SHORT).show();
                 navigator.resetTo(Screen.HOME);
             }
@@ -1532,6 +1535,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(AuthService.UserRecord user) {
                 applyLoggedInUser(user);
                 authPreferences.edit().clear().apply();
+                runFirebaseSchemaMigration();
                 Toast.makeText(MainActivity.this, "Register success", Toast.LENGTH_SHORT).show();
                 navigator.resetTo(Screen.HOME);
             }
@@ -1603,15 +1607,49 @@ public class MainActivity extends AppCompatActivity {
         boolean accountChanged = !TextUtils.equals(activeUid, user.documentId);
         activeUid = user.documentId;
         activeAccountEmail = user.email;
+        activeDisplayName = user.displayName;
         if (accountChanged) {
             libraryBookIds.clear();
             libraryStatuses.clear();
         }
     }
 
+    private void runFirebaseSchemaMigration() {
+        if (TextUtils.isEmpty(activeUid)) {
+            return;
+        }
+        String migrationKey = PREF_FIREBASE_SCHEMA_MIGRATED + activeUid;
+        if (authPreferences.getBoolean(migrationKey, false)) {
+            return;
+        }
+        profileService.migrateAllUsersSchema(new FirestoreCallback<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                bookCatalogService.migrateBookSchema(new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        authPreferences.edit().putBoolean(migrationKey, true).apply();
+                        Log.d(FIRESTORE_TAG, "FIREBASE_SCHEMA_MIGRATION_DONE uid=" + activeUid);
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        Log.e(FIRESTORE_TAG, "BOOK_SCHEMA_MIGRATION_FAIL", error);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Log.e(FIRESTORE_TAG, "USER_SCHEMA_MIGRATION_FAIL", error);
+            }
+        });
+    }
+
     private void signOut() {
         activeUid = "";
         activeAccountEmail = "";
+        activeDisplayName = "";
         libraryBookIds.clear();
         libraryStatuses.clear();
         Toast.makeText(this, "Signed out", Toast.LENGTH_SHORT).show();
@@ -1726,7 +1764,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createCustomAudioBook(String title, String sourceUrl) {
-        ensureAuthenticated(() -> bookCatalogService.createUserBook(activeUid, title, sourceUrl, new FirestoreCallback<String>() {
+        ensureAuthenticated(() -> bookCatalogService.createUserBook(activeUid, activeDisplayName, title, sourceUrl, new FirestoreCallback<String>() {
             @Override
             public void onSuccess(String bookId) {
                 saveCreatedBookToLibrary(bookId, title);
@@ -1865,7 +1903,7 @@ public class MainActivity extends AppCompatActivity {
             View play = item.findViewById(R.id.playButton);
 
             title.setText(book.title);
-            subtitle.setText("bookId: " + book.id);
+            subtitle.setText(book.author);
 
             item.setOnClickListener(v -> openBookDetail(book.id));
             play.setOnClickListener(v -> openFullPlayer(book.id));
@@ -1901,6 +1939,7 @@ public class MainActivity extends AppCompatActivity {
     private void clearActiveAccount() {
         activeUid = "";
         activeAccountEmail = "";
+        activeDisplayName = "";
         libraryBookIds.clear();
         libraryStatuses.clear();
         dynamicLibraryViews.clear();

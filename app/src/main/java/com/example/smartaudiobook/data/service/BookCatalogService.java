@@ -8,7 +8,6 @@ import com.google.firebase.firestore.SetOptions;
 import com.google.firebase.firestore.WriteBatch;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -23,8 +22,7 @@ public class BookCatalogService {
     public void fetchBookTitle(String bookId, FirestoreCallback<String> callback) {
         db.collection("books").document(bookId).get()
                 .addOnSuccessListener(snapshot -> {
-                    String title = snapshot.getString("title");
-                    callback.onSuccess(title == null || title.trim().isEmpty() ? bookId : title);
+                    callback.onSuccess(BookSummary.resolveDisplayName(snapshot));
                 })
                 .addOnFailureListener(callback::onError);
     }
@@ -108,26 +106,21 @@ public class BookCatalogService {
         }
     }
 
-    public void createUserBook(String authorUid, String title, String sourceUrl, FirestoreCallback<String> callback) {
+    public void createUserBook(String authorUid, String authorDisplayName, String title, String sourceUrl,
+                               FirestoreCallback<String> callback) {
         String bookId = buildCustomBookId(title);
+        String cleanedTitle = title.trim();
+        String cleanedAuthorDisplayName = authorDisplayName == null || authorDisplayName.trim().isEmpty()
+                ? "User Author"
+                : authorDisplayName.trim();
 
         Map<String, Object> book = new HashMap<>();
-        book.put("title", title);
-        book.put("titleLower", title.toLowerCase(Locale.US));
-        book.put("author", "User Author");
+        book.put("displayName", cleanedTitle);
+        book.put("title", cleanedTitle);
+        book.put("titleLower", cleanedTitle.toLowerCase(Locale.US));
         book.put("authorUid", authorUid);
-        book.put("desc", "User-created audiobook source.");
-        book.put("coverUrl", "");
-        book.put("sourceType", "url");
+        book.put("authorDisplayName", cleanedAuthorDisplayName);
         book.put("sourceUrl", sourceUrl);
-        book.put("audioUrl", sourceUrl);
-        book.put("tags", Arrays.asList("user-created", "library"));
-        book.put("language", "en");
-        book.put("rating", 0);
-        book.put("ratingCount", 0);
-        book.put("chapterCount", 1);
-        book.put("isFree", true);
-        book.put("isPremium", false);
         book.put("createdAt", FieldValue.serverTimestamp());
         book.put("updatedAt", FieldValue.serverTimestamp());
 
@@ -135,18 +128,57 @@ public class BookCatalogService {
         chapter.put("title", "Source audio");
         chapter.put("order", 1);
         chapter.put("durationSec", 0);
-        chapter.put("sourceType", "url");
-        chapter.put("sourceUrl", sourceUrl);
         chapter.put("audioUrl", sourceUrl);
-        chapter.put("isFreePreview", true);
         chapter.put("createdAt", FieldValue.serverTimestamp());
         chapter.put("updatedAt", FieldValue.serverTimestamp());
 
         WriteBatch batch = db.batch();
-        batch.set(db.collection("books").document(bookId), book, SetOptions.merge());
-        batch.set(db.collection("books").document(bookId).collection("chapters").document("chapter-01"), chapter, SetOptions.merge());
+        batch.set(db.collection("books").document(bookId), book);
+        batch.set(db.collection("books").document(bookId).collection("chapters").document("chapter-01"), chapter);
         batch.commit()
                 .addOnSuccessListener(unused -> callback.onSuccess(bookId))
+                .addOnFailureListener(callback::onError);
+    }
+
+    public void migrateBookSchema(FirestoreCallback<Void> callback) {
+        db.collection("books")
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (snapshot.isEmpty()) {
+                        callback.onSuccess(null);
+                        return;
+                    }
+
+                    List<com.google.firebase.firestore.DocumentSnapshot> books = snapshot.getDocuments();
+                    List<BookSchemaUpdate> updates = new ArrayList<>();
+                    AtomicInteger pending = new AtomicInteger(books.size());
+                    AtomicBoolean completed = new AtomicBoolean(false);
+
+                    for (com.google.firebase.firestore.DocumentSnapshot document : books) {
+                        document.getReference()
+                                .collection("chapters")
+                                .get()
+                                .addOnSuccessListener(chapters -> {
+                                    String directSourceUrl = fallback(document.getString("sourceUrl"), document.getString("audioUrl"));
+                                    String chapterSourceUrl = findFirstChapterSourceUrl(chapters.getDocuments());
+                                    synchronized (updates) {
+                                        updates.add(new BookSchemaUpdate(
+                                                document,
+                                                buildBookSchemaUpdates(document, fallback(directSourceUrl, chapterSourceUrl))
+                                        ));
+                                        for (com.google.firebase.firestore.DocumentSnapshot chapter : chapters.getDocuments()) {
+                                            updates.add(new BookSchemaUpdate(chapter, buildChapterSchemaUpdates(chapter)));
+                                        }
+                                    }
+                                    finishBookSchemaMigrationIfReady(pending, completed, updates, callback);
+                                })
+                                .addOnFailureListener(error -> {
+                                    if (completed.compareAndSet(false, true)) {
+                                        callback.onError(error);
+                                    }
+                                });
+                    }
+                })
                 .addOnFailureListener(callback::onError);
     }
 
@@ -215,5 +247,141 @@ public class BookCatalogService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.US);
+    }
+
+    private String fallback(String preferred, String fallback) {
+        return preferred == null || preferred.trim().isEmpty()
+                ? (fallback == null ? "" : fallback.trim())
+                : preferred.trim();
+    }
+
+    private Map<String, Object> buildBookSchemaUpdates(
+            com.google.firebase.firestore.DocumentSnapshot document,
+            String sourceUrl
+    ) {
+        String displayName = BookSummary.resolveDisplayName(document);
+        String authorDisplayName = fallback(document.getString("authorDisplayName"),
+                fallback(document.getString("author"), "Unknown Author"));
+
+        Map<String, Object> updates = new HashMap<>();
+        updates.put("displayName", displayName);
+        updates.put("title", displayName);
+        updates.put("titleLower", displayName.toLowerCase(Locale.US));
+        updates.put("authorUid", fallback(document.getString("authorUid"), ""));
+        updates.put("authorDisplayName", authorDisplayName);
+        updates.put("sourceUrl", fallback(sourceUrl, ""));
+        if (document.getTimestamp("createdAt") == null) {
+            updates.put("createdAt", FieldValue.serverTimestamp());
+        }
+        updates.put("author", FieldValue.delete());
+        updates.put("desc", FieldValue.delete());
+        updates.put("coverUrl", FieldValue.delete());
+        updates.put("sourceType", FieldValue.delete());
+        updates.put("audioUrl", FieldValue.delete());
+        updates.put("tags", FieldValue.delete());
+        updates.put("language", FieldValue.delete());
+        updates.put("rating", FieldValue.delete());
+        updates.put("ratingCount", FieldValue.delete());
+        updates.put("chapterCount", FieldValue.delete());
+        updates.put("isFree", FieldValue.delete());
+        updates.put("isPremium", FieldValue.delete());
+        updates.put("updatedAt", FieldValue.serverTimestamp());
+        return updates;
+    }
+
+    private Map<String, Object> buildChapterSchemaUpdates(com.google.firebase.firestore.DocumentSnapshot chapter) {
+        Map<String, Object> updates = new HashMap<>();
+        Long order = chapter.getLong("order");
+        Long durationSec = chapter.getLong("durationSec");
+        updates.put("title", fallback(chapter.getString("title"), "Source audio"));
+        updates.put("order", order == null ? 1 : order.intValue());
+        updates.put("durationSec", durationSec == null ? 0 : durationSec.intValue());
+        updates.put("audioUrl", fallback(chapter.getString("audioUrl"), chapter.getString("sourceUrl")));
+        if (chapter.getTimestamp("createdAt") == null) {
+            updates.put("createdAt", FieldValue.serverTimestamp());
+        }
+        updates.put("sourceType", FieldValue.delete());
+        updates.put("sourceUrl", FieldValue.delete());
+        updates.put("isFreePreview", FieldValue.delete());
+        updates.put("updatedAt", FieldValue.serverTimestamp());
+        return updates;
+    }
+
+    private String findFirstChapterSourceUrl(List<com.google.firebase.firestore.DocumentSnapshot> chapters) {
+        com.google.firebase.firestore.DocumentSnapshot firstChapter = null;
+        int firstOrder = Integer.MAX_VALUE;
+        for (com.google.firebase.firestore.DocumentSnapshot chapter : chapters) {
+            Long order = chapter.getLong("order");
+            int normalizedOrder = order == null ? Integer.MAX_VALUE : order.intValue();
+            if (firstChapter == null || normalizedOrder < firstOrder) {
+                firstChapter = chapter;
+                firstOrder = normalizedOrder;
+            }
+        }
+        if (firstChapter == null) {
+            return "";
+        }
+        return fallback(firstChapter.getString("audioUrl"), firstChapter.getString("sourceUrl"));
+    }
+
+    private void finishBookSchemaMigrationIfReady(
+            AtomicInteger pending,
+            AtomicBoolean completed,
+            List<BookSchemaUpdate> updates,
+            FirestoreCallback<Void> callback
+    ) {
+        if (pending.decrementAndGet() != 0 || completed.get()) {
+            return;
+        }
+        List<WriteBatch> batches = new ArrayList<>();
+        WriteBatch batch = db.batch();
+        int writeCount = 0;
+        synchronized (updates) {
+            for (BookSchemaUpdate update : updates) {
+                batch.set(update.document.getReference(), update.fields, SetOptions.merge());
+                writeCount++;
+                if (writeCount == 450) {
+                    batches.add(batch);
+                    batch = db.batch();
+                    writeCount = 0;
+                }
+            }
+        }
+        if (writeCount > 0) {
+            batches.add(batch);
+        }
+        commitBatches(batches, callback);
+    }
+
+    private void commitBatches(List<WriteBatch> batches, FirestoreCallback<Void> callback) {
+        if (batches.isEmpty()) {
+            callback.onSuccess(null);
+            return;
+        }
+        AtomicInteger pending = new AtomicInteger(batches.size());
+        AtomicBoolean completed = new AtomicBoolean(false);
+        for (WriteBatch batch : batches) {
+            batch.commit()
+                    .addOnSuccessListener(unused -> {
+                        if (pending.decrementAndGet() == 0 && completed.compareAndSet(false, true)) {
+                            callback.onSuccess(null);
+                        }
+                    })
+                    .addOnFailureListener(error -> {
+                        if (completed.compareAndSet(false, true)) {
+                            callback.onError(error);
+                        }
+                    });
+        }
+    }
+
+    private static class BookSchemaUpdate {
+        final com.google.firebase.firestore.DocumentSnapshot document;
+        final Map<String, Object> fields;
+
+        BookSchemaUpdate(com.google.firebase.firestore.DocumentSnapshot document, Map<String, Object> fields) {
+            this.document = document;
+            this.fields = fields;
+        }
     }
 }

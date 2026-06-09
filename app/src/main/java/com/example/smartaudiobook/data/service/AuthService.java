@@ -1,6 +1,7 @@
 package com.example.smartaudiobook.data.service;
 
 import com.example.smartaudiobook.data.FirestoreCallback;
+import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.util.HashMap;
@@ -54,6 +55,8 @@ public class AuthService {
                                 data.put("displayName", displayName);
                                 data.put("email", normalizedEmail);
                                 data.put("password", password);
+                                data.put("createdAt", FieldValue.serverTimestamp());
+                                data.put("updatedAt", FieldValue.serverTimestamp());
                                 db.collection("users").document(documentId)
                                         .set(data)
                                         .addOnSuccessListener(unused ->
