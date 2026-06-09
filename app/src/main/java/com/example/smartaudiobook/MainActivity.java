@@ -91,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
     private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
     private static final String PREFS_AUTH = "smartbook_auth";
-    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v5_full_schema_migrated_";
+    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v6_library_download_migrated_";
     private static final String DEFAULT_BOOK_ID = "clean-code-principles";
     private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
     private static final String BOOK_ANDROID = "atomic-habits";
@@ -153,6 +153,7 @@ public class MainActivity extends AppCompatActivity {
     private final List<Chapter> playerQueue = new ArrayList<>();
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
+    private final Set<String> downloadedLibraryBookIds = new HashSet<>();
     private final Map<String, String> libraryStatuses = new HashMap<>();
     private final Map<String, View> dynamicLibraryViews = new HashMap<>();
     private boolean playbackReceiverRegistered;
@@ -1263,7 +1264,7 @@ public class MainActivity extends AppCompatActivity {
             case 1:
                 return LibraryEntry.STATUS_SAVED.equals(status);
             case 2:
-                return LibraryEntry.STATUS_DOWNLOADING.equals(status);
+                return downloadedLibraryBookIds.contains(bookId);
             case 3:
                 return LibraryEntry.STATUS_FINISHED.equals(status);
             case 0:
@@ -1610,6 +1611,7 @@ public class MainActivity extends AppCompatActivity {
         activeDisplayName = user.displayName;
         if (accountChanged) {
             libraryBookIds.clear();
+            downloadedLibraryBookIds.clear();
             libraryStatuses.clear();
         }
     }
@@ -1651,6 +1653,7 @@ public class MainActivity extends AppCompatActivity {
         activeAccountEmail = "";
         activeDisplayName = "";
         libraryBookIds.clear();
+        downloadedLibraryBookIds.clear();
         libraryStatuses.clear();
         Toast.makeText(this, "Signed out", Toast.LENGTH_SHORT).show();
         navigator.resetTo(Screen.LOGIN);
@@ -1668,12 +1671,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onSuccess(Void value) {
                 libraryBookIds.remove(bookId);
+                downloadedLibraryBookIds.remove(bookId);
                 libraryStatuses.remove(bookId);
                 View dynamicView = dynamicLibraryViews.remove(bookId);
                 if (dynamicView != null && currentScreen == Screen.LIBRARY) {
                     ((LinearLayout) findViewById(R.id.libraryContent)).removeView(dynamicView);
                 }
-                profileService.updateLibraryStats(activeUid, libraryBookIds.size());
                 updateLibraryFilters();
                 showToast("Removed from library");
             }
@@ -1784,7 +1787,6 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(Void value) {
                 libraryBookIds.add(bookId);
                 libraryStatuses.put(bookId, LibraryEntry.STATUS_SAVED);
-                profileService.updateLibraryStats(activeUid, libraryBookIds.size());
                 loadLibraryFromFirestore();
                 showToast("Created: " + title);
             }
@@ -1941,6 +1943,7 @@ public class MainActivity extends AppCompatActivity {
         activeAccountEmail = "";
         activeDisplayName = "";
         libraryBookIds.clear();
+        downloadedLibraryBookIds.clear();
         libraryStatuses.clear();
         dynamicLibraryViews.clear();
         loadedLibraryBooks.clear();
@@ -1960,12 +1963,26 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onSuccess(List<LibraryEntry> entries) {
                 libraryBookIds.clear();
+                downloadedLibraryBookIds.clear();
                 libraryStatuses.clear();
                 for (LibraryEntry entry : entries) {
                     libraryBookIds.add(entry.bookId);
+                    if (entry.isDownloaded) {
+                        downloadedLibraryBookIds.add(entry.bookId);
+                    }
                     libraryStatuses.put(entry.bookId, entry.status);
                 }
-                profileService.updateLibraryStats(activeUid, entries.size());
+                userLibraryService.syncLibrarySummary(activeUid, new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        Log.d(FIRESTORE_TAG, "LIBRARY_SUMMARY_SYNC_DONE uid=" + activeUid);
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        Log.e(FIRESTORE_TAG, "LIBRARY_SUMMARY_SYNC_FAIL uid=" + activeUid, error);
+                    }
+                });
                 loadLibraryBookSummaries(entries);
                 updateLibraryFilters();
                 if (entries.isEmpty()) {
