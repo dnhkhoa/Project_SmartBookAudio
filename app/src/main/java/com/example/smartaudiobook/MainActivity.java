@@ -91,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
     private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
     private static final String PREFS_AUTH = "smartbook_auth";
-    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v6_library_download_migrated_";
+    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v7_book_authors_migrated_";
     private static final String DEFAULT_BOOK_ID = "clean-code-principles";
     private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
     private static final String BOOK_ANDROID = "atomic-habits";

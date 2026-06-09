@@ -17,7 +17,7 @@ public class BookSummary {
     public final String sourceUrl;
 
     public BookSummary(@NonNull String id, @NonNull String title) {
-        this(id, title, "User Author", "");
+        this(id, title, "Unknown Author", "");
     }
 
     public BookSummary(@NonNull String id, @NonNull String title, @NonNull String author, @NonNull String sourceUrl) {
@@ -36,7 +36,7 @@ public class BookSummary {
             author = snapshot.getString("author");
         }
         if (author == null || author.trim().isEmpty()) {
-            author = "User Author";
+            author = "Unknown Author";
         }
         String sourceUrl = snapshot.getString("sourceUrl");
         if (sourceUrl == null || sourceUrl.trim().isEmpty()) {

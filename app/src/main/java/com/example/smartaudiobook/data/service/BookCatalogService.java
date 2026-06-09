@@ -17,6 +17,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class BookCatalogService {
+    private static final String[] DEFAULT_AUTHOR_NAMES = {
+            "Alex",
+            "Adam",
+            "Bryan",
+            "Chris",
+            "Daniel",
+            "Ethan",
+            "Henry",
+            "James",
+            "Lucas",
+            "Noah",
+            "Oscar",
+            "Ryan"
+    };
+
     private final FirebaseFirestore db = FirebaseFirestore.getInstance();
 
     public void fetchBookTitle(String bookId, FirestoreCallback<String> callback) {
@@ -106,20 +121,21 @@ public class BookCatalogService {
         }
     }
 
-    public void createUserBook(String authorUid, String authorDisplayName, String title, String sourceUrl,
+    public void createUserBook(String createdByUid, String createdByDisplayName, String title, String sourceUrl,
                                FirestoreCallback<String> callback) {
         String bookId = buildCustomBookId(title);
         String cleanedTitle = title.trim();
-        String cleanedAuthorDisplayName = authorDisplayName == null || authorDisplayName.trim().isEmpty()
-                ? "User Author"
-                : authorDisplayName.trim();
+        String cleanedCreatorDisplayName = createdByDisplayName == null || createdByDisplayName.trim().isEmpty()
+                ? "Unknown User"
+                : createdByDisplayName.trim();
 
         Map<String, Object> book = new HashMap<>();
         book.put("displayName", cleanedTitle);
         book.put("title", cleanedTitle);
         book.put("titleLower", cleanedTitle.toLowerCase(Locale.US));
-        book.put("authorUid", authorUid);
-        book.put("authorDisplayName", cleanedAuthorDisplayName);
+        book.put("authorDisplayName", chooseAuthorDisplayName(bookId));
+        book.put("createdByUid", createdByUid);
+        book.put("createdByDisplayName", cleanedCreatorDisplayName);
         book.put("sourceUrl", sourceUrl);
         book.put("createdAt", FieldValue.serverTimestamp());
         book.put("updatedAt", FieldValue.serverTimestamp());
@@ -260,19 +276,22 @@ public class BookCatalogService {
             String sourceUrl
     ) {
         String displayName = BookSummary.resolveDisplayName(document);
-        String authorDisplayName = fallback(document.getString("authorDisplayName"),
-                fallback(document.getString("author"), "Unknown Author"));
+        String authorDisplayName = chooseAuthorDisplayName(document.getId());
+        String createdByUid = fallback(document.getString("createdByUid"), document.getString("authorUid"));
+        String createdByDisplayName = fallback(document.getString("createdByDisplayName"), "");
 
         Map<String, Object> updates = new HashMap<>();
         updates.put("displayName", displayName);
         updates.put("title", displayName);
         updates.put("titleLower", displayName.toLowerCase(Locale.US));
-        updates.put("authorUid", fallback(document.getString("authorUid"), ""));
         updates.put("authorDisplayName", authorDisplayName);
+        updates.put("createdByUid", createdByUid);
+        updates.put("createdByDisplayName", createdByDisplayName);
         updates.put("sourceUrl", fallback(sourceUrl, ""));
         if (document.getTimestamp("createdAt") == null) {
             updates.put("createdAt", FieldValue.serverTimestamp());
         }
+        updates.put("authorUid", FieldValue.delete());
         updates.put("author", FieldValue.delete());
         updates.put("desc", FieldValue.delete());
         updates.put("coverUrl", FieldValue.delete());
@@ -322,6 +341,11 @@ public class BookCatalogService {
             return "";
         }
         return fallback(firstChapter.getString("audioUrl"), firstChapter.getString("sourceUrl"));
+    }
+
+    private String chooseAuthorDisplayName(String bookId) {
+        int index = Math.abs((bookId == null ? "" : bookId).hashCode()) % DEFAULT_AUTHOR_NAMES.length;
+        return DEFAULT_AUTHOR_NAMES[index];
     }
 
     private void finishBookSchemaMigrationIfReady(
