@@ -73,7 +73,6 @@
     <string name="full_player_pause">Pause</string>
     <string name="full_player_pause_icon">II</string>
     <string name="full_player_speed">1.0x</string>
-    <string name="full_player_timer">Timer</string>
     <string name="full_player_chapter_button">Chapter</string>
     <string name="background_popup_title">Screen off / Background playback</string>
     <string name="background_popup_subtitle">Audio continues playing via service</string>

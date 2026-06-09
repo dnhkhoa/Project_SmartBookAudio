@@ -591,7 +591,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnFullPlayerPlayPause).setOnClickListener(v -> handlePlayPause());
         findViewById(R.id.btnFullPlayerForward).setOnClickListener(v -> seekPlayerBy(15));
         findViewById(R.id.btnFullPlayerSpeed).setOnClickListener(v -> cyclePlaybackSpeed());
-        findViewById(R.id.btnOpenBackgroundPopup).setOnClickListener(v -> navigator.navigateTo(Screen.BACKGROUND_POPUP));
         findViewById(R.id.btnFullPlayerChapter).setOnClickListener(v -> showToast("Chapter list selected"));
         findViewById(R.id.fullPlayerProgress).setOnTouchListener((view, event) -> handleProgressTouch(view, event));
         updateFullPlayerUi();
