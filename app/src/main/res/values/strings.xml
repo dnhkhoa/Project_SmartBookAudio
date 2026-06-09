@@ -132,8 +132,13 @@
     <string name="search_no_results">No results</string>
     <string name="download_label">Download</string>
     <string name="add_label">Add</string>
-    <string name="download_not_ready">Offline download will be connected in the next step</string>
     <string name="no_audio_source">No audio source available</string>
+    <string name="audio_downloading">Audio is downloading</string>
+    <string name="audio_download_start">Downloading audio</string>
+    <string name="audio_already_downloaded">Already downloaded</string>
+    <string name="audio_download_failed">Download failed</string>
+    <string name="audio_download_complete">Downloaded</string>
+    <string name="audio_download_sync_failed">Download saved locally, but sync failed</string>
     <string name="clean_code_notes">Clean Code Notes</string>
     <string name="programming_documents">Programming Documents - 58 mins</string>
     <string name="deep_work_summary">Deep Work Summary</string>

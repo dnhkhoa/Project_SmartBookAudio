@@ -29,12 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -60,6 +55,7 @@ import com.example.smartaudiobook.data.model.LibraryEntry;
 import com.example.smartaudiobook.data.model.PlayerState;
 import com.example.smartaudiobook.data.model.UserProfile;
 import com.example.smartaudiobook.data.service.AuthService;
+import com.example.smartaudiobook.data.service.AudioDownloadService;
 import com.example.smartaudiobook.data.service.BookCatalogService;
 import com.example.smartaudiobook.data.service.ChapterService;
 import com.example.smartaudiobook.data.service.PlaybackStateService;
@@ -91,7 +87,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String[] PLAYBACK_SPEEDS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
     private static final String FIRESTORE_TAG = "SMARTBOOK_FIRESTORE";
     private static final String PREFS_AUTH = "smartbook_auth";
-    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v7_book_authors_migrated_";
+    private static final String PREF_FIREBASE_SCHEMA_MIGRATED = "firebase_schema_v8_library_download_migrated_";
     private static final String DEFAULT_BOOK_ID = "clean-code-principles";
     private static final String DEFAULT_BOOK_TITLE = "Clean Code Principles";
     private static final String BOOK_ANDROID = "atomic-habits";
@@ -121,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
     };
     private final Navigator navigator = new Navigator();
     private final AuthService authService = new AuthService();
+    private AudioDownloadService audioDownloadService;
     private final BookCatalogService bookCatalogService = new BookCatalogService();
     private final ChapterService chapterService = new ChapterService();
     private final PlaybackStateService playbackStateService = new PlaybackStateService();
@@ -155,6 +152,7 @@ public class MainActivity extends AppCompatActivity {
     private int currentChapterIndex = 0;
     private final Set<String> libraryBookIds = new HashSet<>();
     private final Set<String> downloadedLibraryBookIds = new HashSet<>();
+    private final Set<String> downloadingBookIds = new HashSet<>();
     private final Map<String, String> libraryStatuses = new HashMap<>();
     private final Map<String, View> dynamicLibraryViews = new HashMap<>();
     private boolean playbackReceiverRegistered;
@@ -168,6 +166,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        audioDownloadService = new AudioDownloadService(this);
         authPreferences = getSharedPreferences(PREFS_AUTH, MODE_PRIVATE);
         maybeRequestNotificationPermission();
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -657,7 +656,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         if (isAudioDownloading) {
-            showToast("Audio is downloading");
+            showToast(getString(R.string.audio_downloading));
             return;
         }
         selectedSourceUrl = playableUrl;
@@ -733,17 +732,17 @@ public class MainActivity extends AppCompatActivity {
             sourceUrl = DEFAULT_PLAYABLE_AUDIO_URL;
             selectedSourceUrl = sourceUrl;
         }
-        File cachedAudio = getAudioCacheFile(selectedBookId, sourceUrl);
-        if (isCachedAudioReady(cachedAudio)) {
+        File cachedAudio = audioDownloadService.getAudioCacheFile(selectedBookId, sourceUrl);
+        if (audioDownloadService.isCachedAudioReady(cachedAudio)) {
             prepareAndPlayCachedAudio(sourceUrl, cachedAudio);
             return;
         }
-        downloadAudioThenPlay(sourceUrl, cachedAudio);
+        downloadAudioThenPlay(sourceUrl);
     }
 
-    private void downloadAudioThenPlay(String sourceUrl, File cacheFile) {
+    private void downloadAudioThenPlay(String sourceUrl) {
         if (isAudioDownloading && sourceUrl.equals(downloadingSourceUrl)) {
-            showToast("Audio is downloading");
+            showToast(getString(R.string.audio_downloading));
             return;
         }
         final String downloadBookId = selectedBookId;
@@ -751,17 +750,19 @@ public class MainActivity extends AppCompatActivity {
         isAudioDownloading = true;
         downloadingSourceUrl = downloadSourceUrl;
         syncPlayerUi();
-        showToast("Downloading audio");
+        showToast(getString(R.string.audio_download_start));
 
         audioDownloadExecutor.execute(() -> {
             Exception failure = null;
+            AudioDownloadService.DownloadResult result = null;
             try {
-                downloadAudioToCacheWithRetry(downloadSourceUrl, cacheFile);
+                result = audioDownloadService.downloadToCache(downloadBookId, downloadSourceUrl);
             } catch (Exception error) {
                 failure = error;
             }
 
             Exception finalFailure = failure;
+            AudioDownloadService.DownloadResult finalResult = result;
             handler.post(() -> {
                 if (!downloadBookId.equals(selectedBookId) || !downloadSourceUrl.equals(downloadingSourceUrl) || !isPlayerScreen()) {
                     isAudioDownloading = false;
@@ -772,12 +773,15 @@ public class MainActivity extends AppCompatActivity {
                 isAudioDownloading = false;
                 downloadingSourceUrl = "";
                 syncPlayerUi();
-                if (finalFailure != null) {
-                    Log.e(FIRESTORE_TAG, "AUDIO_DOWNLOAD_FAIL url=" + downloadSourceUrl, finalFailure);
-                    showToast("Audio download failed");
+                if (finalFailure != null || finalResult == null) {
+                    Exception logFailure = finalFailure == null
+                            ? new IllegalStateException("Audio download returned no result")
+                            : finalFailure;
+                    Log.e(FIRESTORE_TAG, "AUDIO_DOWNLOAD_FAIL url=" + downloadSourceUrl, logFailure);
+                    showToast(getString(R.string.audio_download_failed));
                     return;
                 }
-                prepareAndPlayCachedAudio(downloadSourceUrl, cacheFile);
+                prepareAndPlayCachedAudio(downloadSourceUrl, finalResult.audioFile);
             });
         });
     }
@@ -824,112 +828,6 @@ public class MainActivity extends AppCompatActivity {
             releaseMediaPlayer();
             syncPlayerUi();
             showToast("Cannot load audio");
-        }
-    }
-
-    private File getAudioCacheFile(String bookId, String sourceUrl) {
-        File audioDir = new File(getFilesDir(), "audio-cache");
-        String normalizedBookId = bookId == null ? "unknown" : bookId
-                .toLowerCase(Locale.US)
-                .replaceAll("[^a-z0-9_-]+", "-")
-                .replaceAll("^-+|-+$", "");
-        if (TextUtils.isEmpty(normalizedBookId)) {
-            normalizedBookId = "unknown";
-        }
-        String sourceHash = Integer.toHexString(sourceUrl.hashCode());
-        return new File(audioDir, normalizedBookId + "-" + sourceHash + getAudioFileExtension(sourceUrl));
-    }
-
-    private boolean isCachedAudioReady(File audioFile) {
-        return audioFile.exists() && audioFile.isFile() && audioFile.length() > 0;
-    }
-
-    private String getAudioFileExtension(String sourceUrl) {
-        String normalized = sourceUrl.toLowerCase(Locale.US);
-        int queryStart = normalized.indexOf('?');
-        if (queryStart >= 0) {
-            normalized = normalized.substring(0, queryStart);
-        }
-        String[] extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".m3u8"};
-        for (String extension : extensions) {
-            if (normalized.endsWith(extension)) {
-                return extension;
-            }
-        }
-        return ".audio";
-    }
-
-    private void downloadAudioToCacheWithRetry(String sourceUrl, File cacheFile) throws Exception {
-        Exception lastFailure = null;
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            try {
-                downloadAudioToCache(sourceUrl, cacheFile);
-                return;
-            } catch (Exception error) {
-                lastFailure = error;
-                Log.e(FIRESTORE_TAG, "AUDIO_DOWNLOAD_ATTEMPT_FAIL attempt=" + attempt + " url=" + sourceUrl, error);
-                File partialFile = new File(cacheFile.getAbsolutePath() + ".download");
-                if (partialFile.exists()) {
-                    partialFile.delete();
-                }
-            }
-        }
-        throw lastFailure == null ? new IllegalStateException("Audio download failed") : lastFailure;
-    }
-
-    private void downloadAudioToCache(String sourceUrl, File cacheFile) throws Exception {
-        File parent = cacheFile.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IllegalStateException("Cannot create audio cache directory");
-        }
-
-        File tempFile = new File(cacheFile.getAbsolutePath() + ".download");
-        if (tempFile.exists() && !tempFile.delete()) {
-            throw new IllegalStateException("Cannot reset partial audio download");
-        }
-
-        HttpURLConnection connection = null;
-        try {
-            connection = (HttpURLConnection) new URL(sourceUrl).openConnection();
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(30000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("Accept-Encoding", "identity");
-            connection.setRequestProperty("Connection", "close");
-            connection.setRequestProperty("User-Agent", "SmartAudioBook/1.0 Android");
-            int responseCode = connection.getResponseCode();
-            if (responseCode < 200 || responseCode >= 300) {
-                throw new IllegalStateException("Audio download HTTP " + responseCode);
-            }
-
-            try (InputStream input = new BufferedInputStream(connection.getInputStream());
-                 FileOutputStream output = new FileOutputStream(tempFile, false)) {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        throw new InterruptedException("Audio download cancelled");
-                    }
-                    output.write(buffer, 0, read);
-                }
-            }
-
-            if (tempFile.length() == 0) {
-                throw new IllegalStateException("Downloaded audio file is empty");
-            }
-            if (cacheFile.exists() && !cacheFile.delete()) {
-                throw new IllegalStateException("Cannot replace cached audio");
-            }
-            if (!tempFile.renameTo(cacheFile)) {
-                throw new IllegalStateException("Cannot finalize cached audio");
-            }
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-            if (tempFile.exists() && !tempFile.equals(cacheFile)) {
-                tempFile.delete();
-            }
         }
     }
 
@@ -1633,6 +1531,7 @@ public class MainActivity extends AppCompatActivity {
         if (accountChanged) {
             libraryBookIds.clear();
             downloadedLibraryBookIds.clear();
+            downloadingBookIds.clear();
             libraryStatuses.clear();
         }
     }
@@ -1675,6 +1574,7 @@ public class MainActivity extends AppCompatActivity {
         activeDisplayName = "";
         libraryBookIds.clear();
         downloadedLibraryBookIds.clear();
+        downloadingBookIds.clear();
         libraryStatuses.clear();
         Toast.makeText(this, "Signed out", Toast.LENGTH_SHORT).show();
         navigator.resetTo(Screen.LOGIN);
@@ -1693,6 +1593,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(Void value) {
                 libraryBookIds.remove(bookId);
                 downloadedLibraryBookIds.remove(bookId);
+                downloadingBookIds.remove(bookId);
                 libraryStatuses.remove(bookId);
                 View dynamicView = dynamicLibraryViews.remove(bookId);
                 if (dynamicView != null && currentScreen == Screen.LIBRARY) {
@@ -1982,7 +1883,82 @@ public class MainActivity extends AppCompatActivity {
                 showToast(getString(R.string.no_audio_source));
                 return;
             }
-            showToast(getString(R.string.download_not_ready));
+            if (!isPlayableAudioUrl(book.sourceUrl)) {
+                showToast(getString(R.string.no_audio_source));
+                return;
+            }
+            if (downloadedLibraryBookIds.contains(book.id)) {
+                showToast(getString(R.string.audio_already_downloaded));
+                return;
+            }
+            if (downloadingBookIds.contains(book.id)) {
+                showToast(getString(R.string.audio_downloading));
+                return;
+            }
+            final String downloadUid = activeUid;
+            final String persistentStatus = getPersistentLibraryStatus(book.id);
+            downloadingBookIds.add(book.id);
+            showToast(getString(R.string.audio_download_start));
+            downloadAudiobookForOffline(downloadUid, book, persistentStatus);
+        });
+    }
+
+    private String getPersistentLibraryStatus(String bookId) {
+        String status = libraryStatuses.get(bookId);
+        if (TextUtils.isEmpty(status) || LibraryEntry.STATUS_DOWNLOADING.equals(status)) {
+            return LibraryEntry.STATUS_SAVED;
+        }
+        return status;
+    }
+
+    private void downloadAudiobookForOffline(String downloadUid, BookSummary book, String persistentStatus) {
+        audioDownloadExecutor.execute(() -> {
+            Exception failure = null;
+            AudioDownloadService.DownloadResult result = null;
+            try {
+                result = audioDownloadService.downloadToCache(book.id, book.sourceUrl);
+            } catch (Exception error) {
+                failure = error;
+            }
+
+            Exception finalFailure = failure;
+            AudioDownloadService.DownloadResult finalResult = result;
+            handler.post(() -> {
+                boolean isCurrentAccount = TextUtils.equals(downloadUid, activeUid);
+                if (finalFailure != null || finalResult == null) {
+                    downloadingBookIds.remove(book.id);
+                    Exception logFailure = finalFailure == null
+                            ? new IllegalStateException("Audio download returned no result")
+                            : finalFailure;
+                    Log.e(FIRESTORE_TAG, "OFFLINE_DOWNLOAD_FAIL bookId=" + book.id + " url=" + book.sourceUrl, logFailure);
+                    if (isCurrentAccount) {
+                        showToast(getString(R.string.audio_download_failed));
+                    }
+                    return;
+                }
+                userLibraryService.markDownloaded(downloadUid, book.id, finalResult.localCacheKey, persistentStatus, new FirestoreCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        downloadingBookIds.remove(book.id);
+                        if (isCurrentAccount) {
+                            libraryBookIds.add(book.id);
+                            downloadedLibraryBookIds.add(book.id);
+                            libraryStatuses.put(book.id, persistentStatus);
+                            updateLibraryFilters();
+                            showToast(getString(R.string.audio_download_complete));
+                        }
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        downloadingBookIds.remove(book.id);
+                        Log.e(FIRESTORE_TAG, "DOWNLOAD_MARK_DONE_FAIL bookId=" + book.id, error);
+                        if (isCurrentAccount) {
+                            showToast(getString(R.string.audio_download_sync_failed));
+                        }
+                    }
+                });
+            });
         });
     }
 
@@ -2016,6 +1992,7 @@ public class MainActivity extends AppCompatActivity {
         activeDisplayName = "";
         libraryBookIds.clear();
         downloadedLibraryBookIds.clear();
+        downloadingBookIds.clear();
         libraryStatuses.clear();
         dynamicLibraryViews.clear();
         loadedLibraryBooks.clear();

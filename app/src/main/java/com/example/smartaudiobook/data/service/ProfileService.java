@@ -176,9 +176,10 @@ public class ProfileService {
         Map<String, Object> updates = new HashMap<>();
         String status = fallback(snapshot.getString("status"), LibraryEntry.STATUS_SAVED);
         boolean legacyDownloaded = "downloaded".equals(status);
+        boolean staleDownloading = LibraryEntry.STATUS_DOWNLOADING.equals(status);
         boolean isDownloaded = Boolean.TRUE.equals(snapshot.getBoolean("isDownloaded")) || legacyDownloaded;
 
-        updates.put("status", legacyDownloaded ? LibraryEntry.STATUS_SAVED : status);
+        updates.put("status", legacyDownloaded || staleDownloading ? LibraryEntry.STATUS_SAVED : status);
         updates.put("isDownloaded", isDownloaded);
         updates.put("lastChapterId", fallback(snapshot.getString("lastChapterId"), ""));
         Long position = snapshot.getLong("lastPositionSec");
@@ -196,6 +197,15 @@ public class ProfileService {
         if (!isDownloaded) {
             updates.put("downloadedAt", FieldValue.delete());
         }
+        updates.put("title", FieldValue.delete());
+        updates.put("displayName", FieldValue.delete());
+        updates.put("author", FieldValue.delete());
+        updates.put("authorDisplayName", FieldValue.delete());
+        updates.put("createdByUid", FieldValue.delete());
+        updates.put("createdByDisplayName", FieldValue.delete());
+        updates.put("source", FieldValue.delete());
+        updates.put("sourceUrl", FieldValue.delete());
+        updates.put("audioUrl", FieldValue.delete());
         return updates;
     }
 

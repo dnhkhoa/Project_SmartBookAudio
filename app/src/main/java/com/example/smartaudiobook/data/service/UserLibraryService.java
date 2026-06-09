@@ -98,35 +98,48 @@ public class UserLibraryService {
     }
 
     public void updateStatus(String uid, String bookId, String status, FirestoreCallback<Void> callback) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("status", status);
-        data.put("lastOpenedAt", FieldValue.serverTimestamp());
-        if (LibraryEntry.STATUS_DOWNLOADING.equals(status)) {
-            data.put("isDownloaded", false);
-            data.put("downloadedAt", FieldValue.delete());
-            data.put("localCacheKey", FieldValue.delete());
-        }
-        db.collection("users")
+        com.google.firebase.firestore.DocumentReference entryRef = db.collection("users")
                 .document(uid)
                 .collection("library")
-                .document(bookId)
-                .set(data, SetOptions.merge())
-                .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                .document(bookId);
+        entryRef.get()
+                .addOnSuccessListener(snapshot -> {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("status", normalizePersistentStatus(status));
+                    data.put("lastOpenedAt", FieldValue.serverTimestamp());
+                    if (!snapshot.exists()) {
+                        addNewLibraryEntryDefaults(data);
+                        data.put("isDownloaded", false);
+                    } else if (snapshot.getBoolean("isDownloaded") == null) {
+                        data.put("isDownloaded", false);
+                    }
+                    entryRef.set(data, SetOptions.merge())
+                            .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                            .addOnFailureListener(callback::onError);
+                })
                 .addOnFailureListener(callback::onError);
     }
 
-    public void markDownloaded(String uid, String bookId, String localCacheKey, FirestoreCallback<Void> callback) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("isDownloaded", true);
-        data.put("downloadedAt", FieldValue.serverTimestamp());
-        data.put("lastOpenedAt", FieldValue.serverTimestamp());
-        data.put("localCacheKey", localCacheKey == null ? "" : localCacheKey);
-        db.collection("users")
+    public void markDownloaded(String uid, String bookId, String localCacheKey, String status, FirestoreCallback<Void> callback) {
+        com.google.firebase.firestore.DocumentReference entryRef = db.collection("users")
                 .document(uid)
                 .collection("library")
-                .document(bookId)
-                .set(data, SetOptions.merge())
-                .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                .document(bookId);
+        entryRef.get()
+                .addOnSuccessListener(snapshot -> {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("status", normalizePersistentStatus(status));
+                    if (!snapshot.exists()) {
+                        addNewLibraryEntryDefaults(data);
+                    }
+                    data.put("isDownloaded", true);
+                    data.put("downloadedAt", FieldValue.serverTimestamp());
+                    data.put("lastOpenedAt", FieldValue.serverTimestamp());
+                    data.put("localCacheKey", localCacheKey == null ? "" : localCacheKey);
+                    entryRef.set(data, SetOptions.merge())
+                            .addOnSuccessListener(unused -> syncLibrarySummary(uid, callback))
+                            .addOnFailureListener(callback::onError);
+                })
                 .addOnFailureListener(callback::onError);
     }
 
@@ -193,5 +206,18 @@ public class UserLibraryService {
             normalized = "untitled";
         }
         return "custom-" + normalized + "-" + System.currentTimeMillis();
+    }
+
+    private void addNewLibraryEntryDefaults(Map<String, Object> data) {
+        data.put("addedAt", FieldValue.serverTimestamp());
+        data.put("lastChapterId", "");
+        data.put("lastPositionSec", 0);
+    }
+
+    private String normalizePersistentStatus(String status) {
+        if (status == null || status.trim().isEmpty() || LibraryEntry.STATUS_DOWNLOADING.equals(status)) {
+            return LibraryEntry.STATUS_SAVED;
+        }
+        return status;
     }
 }
