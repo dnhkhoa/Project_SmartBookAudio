@@ -179,22 +179,6 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/btnGoogleRegister"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="14dp"
-                android:background="@drawable/bg_google_button"
-                android:clickable="true"
-                android:drawablePadding="10dp"
-                android:focusable="true"
-                android:gravity="center"
-                android:text="@string/register_google"
-                android:textColor="@color/text_dark"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                app:drawableStartCompat="@drawable/ic_google_simple" />
-
         </LinearLayout>
 
         <TextView

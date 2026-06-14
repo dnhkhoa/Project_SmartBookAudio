@@ -218,19 +218,21 @@ public class BookCatalogService {
         }
 
         db.collection("books")
-                .orderBy("titleLower")
-                .startAt(normalized)
-                .endAt(normalized + "\uf8ff")
-                .limit(limit)
                 .get()
                 .addOnSuccessListener(snapshot -> {
                     List<BookSummary> results = new ArrayList<>();
                     for (com.google.firebase.firestore.DocumentSnapshot document : snapshot.getDocuments()) {
-                        results.add(BookSummary.fromSnapshot(document));
+                        BookSummary book = BookSummary.fromSnapshot(document);
+                        if (matchesSearch(book, normalized)) {
+                            results.add(book);
+                            if (results.size() >= limit) {
+                                break;
+                            }
+                        }
                     }
                     callback.onSuccess(results);
                 })
-                .addOnFailureListener(error -> fallbackClientFilter(normalized, limit, callback, error));
+                .addOnFailureListener(callback::onError);
     }
 
     public void fetchAllBooks(int limit, FirestoreCallback<List<BookSummary>> callback) {
@@ -259,7 +261,7 @@ public class BookCatalogService {
                     List<BookSummary> results = new ArrayList<>();
                     for (com.google.firebase.firestore.DocumentSnapshot document : snapshot.getDocuments()) {
                         BookSummary book = BookSummary.fromSnapshot(document);
-                        if (normalize(book.title).contains(normalized) || normalize(book.id).contains(normalized)) {
+                        if (matchesSearch(book, normalized) || normalize(book.id).contains(normalized)) {
                             results.add(book);
                             if (results.size() >= limit) {
                                 break;
@@ -272,6 +274,11 @@ public class BookCatalogService {
                     // If even fallback fails, return the original error because it is usually more useful.
                     callback.onError(originalError != null ? originalError : err);
                 });
+    }
+
+    private boolean matchesSearch(BookSummary book, String normalized) {
+        return normalize(book.title).contains(normalized)
+                || normalize(book.author).contains(normalized);
     }
 
     private String normalize(String value) {

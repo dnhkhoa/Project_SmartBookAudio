@@ -1,6 +1,7 @@
 package com.example.smartaudiobook.data.service;
 
 import com.example.smartaudiobook.data.FirestoreCallback;
+import com.google.firebase.firestore.FirebaseFirestoreException;
 import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 
@@ -83,6 +84,79 @@ public class AuthService {
                     callback.onSuccess(password == null ? "" : password);
                 })
                 .addOnFailureListener(callback::onError);
+    }
+
+    public void createPasswordResetOtp(String email, String otp, long expiresAtMillis,
+                                       FirestoreCallback<UserRecord> callback) {
+        String normalizedEmail = normalizeEmail(email);
+        db.collection("users")
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (snapshot.isEmpty()) {
+                        callback.onError(new Exception("Email does not exist"));
+                        return;
+                    }
+                    com.google.firebase.firestore.DocumentSnapshot document = snapshot.getDocuments().get(0);
+                    Map<String, Object> updates = new HashMap<>();
+                    updates.put("resetOtp", otp);
+                    updates.put("resetOtpExpiresAt", expiresAtMillis);
+                    updates.put("updatedAt", FieldValue.serverTimestamp());
+                    db.collection("users").document(document.getId())
+                            .update(updates)
+                            .addOnSuccessListener(unused -> callback.onSuccess(UserRecord.fromDocument(document)))
+                            .addOnFailureListener(callback::onError);
+                })
+                .addOnFailureListener(callback::onError);
+    }
+
+    public void resetPasswordWithOtp(String email, String otp, String newPassword,
+                                     FirestoreCallback<UserRecord> callback) {
+        String normalizedEmail = normalizeEmail(email);
+        db.collection("users")
+                .whereEqualTo("email", normalizedEmail)
+                .limit(1)
+                .get()
+                .addOnSuccessListener(snapshot -> {
+                    if (snapshot.isEmpty()) {
+                        callback.onError(new Exception("Email does not exist"));
+                        return;
+                    }
+                    com.google.firebase.firestore.DocumentSnapshot document = snapshot.getDocuments().get(0);
+                    String savedOtp = document.getString("resetOtp");
+                    Long expiresAt = document.getLong("resetOtpExpiresAt");
+                    if (savedOtp == null || !savedOtp.equals(otp)) {
+                        callback.onError(new Exception("Invalid OTP"));
+                        return;
+                    }
+                    if (expiresAt == null || expiresAt < System.currentTimeMillis()) {
+                        callback.onError(new Exception("OTP expired"));
+                        return;
+                    }
+                    Map<String, Object> updates = new HashMap<>();
+                    updates.put("password", newPassword);
+                    updates.put("resetOtp", FieldValue.delete());
+                    updates.put("resetOtpExpiresAt", FieldValue.delete());
+                    updates.put("updatedAt", FieldValue.serverTimestamp());
+                    db.collection("users").document(document.getId())
+                            .update(updates)
+                            .addOnSuccessListener(unused -> callback.onSuccess(UserRecord.fromDocument(document)))
+                            .addOnFailureListener(callback::onError);
+                })
+                .addOnFailureListener(callback::onError);
+    }
+
+    public static String mapAuthErrorMessage(Exception error) {
+        if (error instanceof FirebaseFirestoreException) {
+            FirebaseFirestoreException firestoreError = (FirebaseFirestoreException) error;
+            if (firestoreError.getCode() == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                return "Firestore rules are blocking access to users collection";
+            }
+        }
+        return error == null || error.getMessage() == null || error.getMessage().trim().isEmpty()
+                ? "Authentication failed"
+                : error.getMessage();
     }
 
     private String normalizeEmail(String email) {

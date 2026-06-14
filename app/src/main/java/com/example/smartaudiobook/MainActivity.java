@@ -10,12 +10,15 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
+import android.net.Uri;
 import android.media.PlaybackParams;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.InputType;
 import android.os.Build;
+import android.text.TextWatcher;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -30,6 +33,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -71,7 +75,6 @@ public class MainActivity extends AppCompatActivity {
         SPLASH,
         ONBOARDING,
         LOGIN,
-        REGISTER,
         FORGOT_PASSWORD,
         HOME,
         EXPLORE,
@@ -94,6 +97,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String BOOK_CLEAN_CODE = "clean-code-principles";
     private static final String BOOK_AI = "ai-for-everyone";
     private static final String BOOK_ENGLISH = "the-little-prince";
+    private static final long PASSWORD_RESET_OTP_TTL_MS = 10 * 60 * 1000L;
     private static final String DYNAMIC_LIBRARY_ITEM_TAG = "dynamic_library_item";
     private static final String DEFAULT_PLAYABLE_AUDIO_URL = "https://www.gutenberg.org/files/23937/mp3/23937-01.mp3";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 731;
@@ -117,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
     };
     private final Navigator navigator = new Navigator();
     private final AuthService authService = new AuthService();
+    private final SecureRandom secureRandom = new SecureRandom();
     private AudioDownloadService audioDownloadService;
     private final BookCatalogService bookCatalogService = new BookCatalogService();
     private final ChapterService chapterService = new ChapterService();
@@ -129,6 +134,9 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout exploreAudiobooksContainer;
     private LinearLayout searchResultsContainer;
     private TextView searchMatchCountView;
+    private TextView exploreResultsTitleView;
+    private TextView exploreResultsCountView;
+    private View exploreExtraSections;
     private Screen currentScreen = Screen.HOME;
     private int playerPositionSeconds = 85;
     private int playbackSpeedIndex = 1;
@@ -163,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
             });
     private SharedPreferences authPreferences;
     private final List<BookSummary> loadedLibraryBooks = new ArrayList<>();
+    private final List<BookSummary> loadedExploreBooks = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -272,9 +281,6 @@ public class MainActivity extends AppCompatActivity {
                 case LOGIN:
                     showLogin();
                     break;
-                case REGISTER:
-                    showRegister();
-                    break;
                 case FORGOT_PASSWORD:
                     showForgotPassword();
                     break;
@@ -332,42 +338,26 @@ public class MainActivity extends AppCompatActivity {
         currentScreen = Screen.LOGIN;
         prepareLightWindow();
         setContentView(R.layout.activity_login);
+
         EditText emailInput = findViewById(R.id.edtEmail);
         EditText passwordInput = findViewById(R.id.edtPassword);
         CheckBox rememberCheckBox = findViewById(R.id.chkRemember);
-        TextInputLayout emailLayout = findViewById(R.id.tilLoginEmail);
-        TextInputLayout passwordLayout = findViewById(R.id.tilLoginPassword);
-        boolean rememberMe = authPreferences.getBoolean("remember", false);
-        rememberCheckBox.setChecked(rememberMe);
-        if (rememberMe) {
-            emailInput.setText(authPreferences.getString("email", ""));
-            passwordInput.setText(authPreferences.getString("password", ""));
-        } else {
-            emailInput.setText("");
-            passwordInput.setText("");
-        }
-        findViewById(R.id.txtForgot).setOnClickListener(v -> navigator.navigateTo(Screen.FORGOT_PASSWORD));
-        findViewById(R.id.txtGoRegister).setOnClickListener(v -> navigator.navigateTo(Screen.REGISTER));
-        findViewById(R.id.btnLogin).setOnClickListener(v ->
-                handleLogin(emailInput, passwordInput, rememberCheckBox, emailLayout, passwordLayout));
-    }
 
-    private void showRegister() {
-        currentScreen = Screen.REGISTER;
-        prepareLightWindow();
-        setContentView(R.layout.activity_register);
-        EditText fullNameInput = findViewById(R.id.edtFullName);
-        EditText emailInput = findViewById(R.id.edtEmail);
-        EditText passwordInput = findViewById(R.id.edtPassword);
-        EditText confirmPasswordInput = findViewById(R.id.edtConfirmPassword);
-        TextInputLayout fullNameLayout = findViewById(R.id.tilRegisterFullName);
-        TextInputLayout emailLayout = findViewById(R.id.tilRegisterEmail);
-        TextInputLayout passwordLayout = findViewById(R.id.tilRegisterPassword);
-        TextInputLayout confirmPasswordLayout = findViewById(R.id.tilRegisterConfirmPassword);
-        findViewById(R.id.txtGoLogin).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.btnRegister).setOnClickListener(v ->
-                handleRegister(fullNameInput, emailInput, passwordInput, confirmPasswordInput,
-                        fullNameLayout, emailLayout, passwordLayout, confirmPasswordLayout));
+        boolean isRemembered = authPreferences.getBoolean("remember", false);
+        rememberCheckBox.setChecked(isRemembered);
+
+        emailInput.setText(isRemembered ? authPreferences.getString("email", "") : "");
+        passwordInput.setText(isRemembered ? authPreferences.getString("password", "") : "");
+
+        findViewById(R.id.txtForgot).setOnClickListener(v -> navigator.navigateTo(Screen.FORGOT_PASSWORD));
+
+        findViewById(R.id.btnLogin).setOnClickListener(v -> handleLogin(
+                emailInput,
+                passwordInput,
+                rememberCheckBox,
+                findViewById(R.id.tilLoginEmail),
+                findViewById(R.id.tilLoginPassword)
+        ));
     }
 
     private void showForgotPassword() {
@@ -375,10 +365,17 @@ public class MainActivity extends AppCompatActivity {
         prepareLightWindow();
         setContentView(R.layout.activity_forgot_password);
         EditText emailInput = findViewById(R.id.edtEmail);
+        EditText otpInput = findViewById(R.id.edtOtp);
+        EditText newPasswordInput = findViewById(R.id.edtNewPassword);
         TextInputLayout emailLayout = findViewById(R.id.tilForgotEmail);
+        TextInputLayout otpLayout = findViewById(R.id.tilOtp);
+        TextInputLayout newPasswordLayout = findViewById(R.id.tilNewPassword);
+        LinearLayout resetBox = findViewById(R.id.resetBox);
         findViewById(R.id.btnBack).setOnClickListener(v -> navigator.goBack());
         findViewById(R.id.txtBackLogin).setOnClickListener(v -> navigator.goBack());
-        findViewById(R.id.btnSendInstruction).setOnClickListener(v -> handleForgotPassword(emailInput, emailLayout));
+        findViewById(R.id.btnSendInstruction).setOnClickListener(v -> handleForgotPassword(emailInput, emailLayout, resetBox));
+        findViewById(R.id.btnResetPassword).setOnClickListener(v ->
+                handleResetPassword(emailInput, otpInput, newPasswordInput, emailLayout, otpLayout, newPasswordLayout));
     }
 
     private void showHome() {
@@ -399,6 +396,9 @@ public class MainActivity extends AppCompatActivity {
         prepareLightWindow();
         setContentView(R.layout.activity_explore);
         exploreAudiobooksContainer = findViewById(R.id.allAudiobooksContainer);
+        exploreResultsTitleView = findViewById(R.id.txtExploreResultsTitle);
+        exploreResultsCountView = findViewById(R.id.txtExploreResultsCount);
+        exploreExtraSections = findViewById(R.id.exploreExtraSections);
         EditText exploreSearchInput = findViewById(R.id.edtExploreSearch);
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
@@ -407,13 +407,24 @@ public class MainActivity extends AppCompatActivity {
         exploreSearchInput.setOnEditorActionListener((textView, actionId, keyEvent) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 String query = exploreSearchInput.getText().toString().trim();
-                if (!query.isEmpty()) {
-                    navigator.navigateTo(Screen.SEARCH);
-                    searchKeyword(query);
-                    return true;
-                }
+                filterExploreAudiobooks(query);
+                return true;
             }
             return false;
+        });
+        exploreSearchInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                filterExploreAudiobooks(s == null ? "" : s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
         });
         findViewById(R.id.topicAi).setOnClickListener(v -> openTopic("AI"));
         findViewById(R.id.topicData).setOnClickListener(v -> openTopic("Data"));
@@ -469,13 +480,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navHome).setOnClickListener(v -> navigator.switchTab(Screen.HOME));
         findViewById(R.id.navExplore).setOnClickListener(v -> navigator.switchTab(Screen.EXPLORE));
         findViewById(R.id.navLibrary).setOnClickListener(v -> navigator.switchTab(Screen.LIBRARY));
-        findViewById(R.id.menuDefaultVoice).setOnClickListener(v ->
-                updateProfilePreference("defaultVoice", "Natural voice", "Default voice updated"));
-        findViewById(R.id.menuAppLanguage).setOnClickListener(v ->
-                updateProfilePreference("appLanguage", "Vietnamese", "Language preference updated"));
-        findViewById(R.id.menuDataStorage).setOnClickListener(v ->
-                updateProfilePreference("storageMode", "Offline first", "Storage preference updated"));
-        findViewById(R.id.menuHelpSupport).setOnClickListener(v -> showProfileAction(getString(R.string.profile_help_support)));
         findViewById(R.id.btnSignOut).setOnClickListener(v -> signOut());
         bindProfileFromFirebase();
     }
@@ -1455,68 +1459,86 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception error) {
-                Toast.makeText(MainActivity.this, error.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, AuthService.mapAuthErrorMessage(error), Toast.LENGTH_SHORT).show();
             }
         });
     }
 
-    private void handleRegister(EditText fullNameInput, EditText emailInput, EditText passwordInput, EditText confirmPasswordInput,
-                                TextInputLayout fullNameLayout, TextInputLayout emailLayout, TextInputLayout passwordLayout, TextInputLayout confirmPasswordLayout) {
-        boolean valid = validateRequired(fullNameInput, fullNameLayout, "Full name is required")
-                & validateEmailField(emailInput, emailLayout)
-                & validateRequired(passwordInput, passwordLayout, "Password is required")
-                & validateRequired(confirmPasswordInput, confirmPasswordLayout, "Confirm password is required");
-        if (valid && !TextUtils.equals(passwordInput.getText(), confirmPasswordInput.getText())) {
-            setInputError(confirmPasswordLayout, "Passwords do not match");
-            valid = false;
-        }
-        if (!valid) {
-            Toast.makeText(this, "Register failed. Please check your input.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String displayName = fullNameInput.getText().toString().trim();
-        String email = emailInput.getText().toString().trim();
-        String password = passwordInput.getText().toString().trim();
-        String documentId = buildUserDocumentId(email);
-
-        authService.register(documentId, displayName, email, password, new FirestoreCallback<AuthService.UserRecord>() {
-            @Override
-            public void onSuccess(AuthService.UserRecord user) {
-                applyLoggedInUser(user);
-                authPreferences.edit().clear().apply();
-                runFirebaseSchemaMigration();
-                Toast.makeText(MainActivity.this, "Register success", Toast.LENGTH_SHORT).show();
-                navigator.resetTo(Screen.HOME);
-            }
-
-            @Override
-            public void onError(Exception error) {
-                Toast.makeText(MainActivity.this, error.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
-    private void handleForgotPassword(EditText emailInput, TextInputLayout emailLayout) {
+    private void handleForgotPassword(EditText emailInput, TextInputLayout emailLayout, LinearLayout resetBox) {
         if (!validateEmailField(emailInput, emailLayout)) {
             Toast.makeText(this, "Cannot send instruction. Invalid email.", Toast.LENGTH_SHORT).show();
             return;
         }
         String email = emailInput.getText().toString().trim();
-        authService.findPasswordByEmail(email, new FirestoreCallback<String>() {
+        String otp = generateOtp();
+        long expiresAtMillis = System.currentTimeMillis() + PASSWORD_RESET_OTP_TTL_MS;
+        authService.createPasswordResetOtp(email, otp, expiresAtMillis, new FirestoreCallback<AuthService.UserRecord>() {
             @Override
-            public void onSuccess(String password) {
-                new AlertDialog.Builder(MainActivity.this)
-                        .setTitle("Your Password")
-                        .setMessage("Password: " + password)
-                        .setPositiveButton("OK", null)
-                        .show();
+            public void onSuccess(AuthService.UserRecord user) {
+                resetBox.setVisibility(View.VISIBLE);
+                sendOtpEmail(user.email, otp);
+                Toast.makeText(MainActivity.this, "OTP created. Check your email app.", Toast.LENGTH_SHORT).show();
             }
 
             @Override
             public void onError(Exception error) {
-                Toast.makeText(MainActivity.this, error.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, AuthService.mapAuthErrorMessage(error), Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    private void handleResetPassword(EditText emailInput, EditText otpInput, EditText newPasswordInput,
+                                     TextInputLayout emailLayout, TextInputLayout otpLayout,
+                                     TextInputLayout newPasswordLayout) {
+        boolean valid = validateEmailField(emailInput, emailLayout)
+                & validateRequired(otpInput, otpLayout, "OTP is required")
+                & validateRequired(newPasswordInput, newPasswordLayout, "New password is required");
+        if (!valid) {
+            Toast.makeText(this, "Please enter email, OTP and new password.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String email = emailInput.getText().toString().trim();
+        String otp = otpInput.getText().toString().trim();
+        String newPassword = newPasswordInput.getText().toString().trim();
+        authService.resetPasswordWithOtp(email, otp, newPassword, new FirestoreCallback<AuthService.UserRecord>() {
+            @Override
+            public void onSuccess(AuthService.UserRecord user) {
+                applyLoggedInUser(user);
+                authPreferences.edit()
+                        .putBoolean("remember", true)
+                        .putString("email", user.email)
+                        .putString("password", newPassword)
+                        .apply();
+                runFirebaseSchemaMigration();
+                Toast.makeText(MainActivity.this, "Password reset. Login success.", Toast.LENGTH_SHORT).show();
+                navigator.resetTo(Screen.HOME);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                Toast.makeText(MainActivity.this, AuthService.mapAuthErrorMessage(error), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private String generateOtp() {
+        return String.format(Locale.US, "%06d", secureRandom.nextInt(1_000_000));
+    }
+
+    private void sendOtpEmail(String email, String otp) {
+        Intent intent = new Intent(Intent.ACTION_SENDTO);
+        intent.setData(Uri.parse("mailto:" + Uri.encode(email)));
+        intent.putExtra(Intent.EXTRA_SUBJECT, "Smart AudioBook password reset OTP");
+        intent.putExtra(Intent.EXTRA_TEXT, "Your Smart AudioBook OTP is: " + otp + "\nThis code expires in 10 minutes.");
+        if (intent.resolveActivity(getPackageManager()) != null) {
+            startActivity(Intent.createChooser(intent, "Send OTP email"));
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("OTP")
+                .setMessage("No email app found. OTP: " + otp)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private boolean validateEmailField(EditText emailInput, TextInputLayout inputLayout) {
@@ -1785,6 +1807,7 @@ public class MainActivity extends AppCompatActivity {
         if (exploreAudiobooksContainer == null) {
             return;
         }
+        loadedExploreBooks.clear();
         renderBookActionList(
                 exploreAudiobooksContainer,
                 new ArrayList<>(),
@@ -1794,7 +1817,11 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onSuccess(List<BookSummary> books) {
                 if (currentScreen == Screen.EXPLORE) {
-                    renderBookActionList(exploreAudiobooksContainer, books, getString(R.string.all_audiobooks_empty));
+                    loadedExploreBooks.clear();
+                    loadedExploreBooks.addAll(books);
+                    EditText exploreSearchInput = findViewById(R.id.edtExploreSearch);
+                    String query = exploreSearchInput == null ? "" : exploreSearchInput.getText().toString();
+                    filterExploreAudiobooks(query);
                 }
             }
 
@@ -1802,10 +1829,59 @@ public class MainActivity extends AppCompatActivity {
             public void onError(Exception error) {
                 Log.e(FIRESTORE_TAG, "ALL_AUDIOBOOKS_LOAD_FAIL", error);
                 if (currentScreen == Screen.EXPLORE) {
+                    loadedExploreBooks.clear();
                     renderBookActionList(exploreAudiobooksContainer, new ArrayList<>(), getString(R.string.all_audiobooks_load_failed));
                 }
             }
         });
+    }
+
+    private void filterExploreAudiobooks(String query) {
+        if (exploreAudiobooksContainer == null || currentScreen != Screen.EXPLORE) {
+            return;
+        }
+
+        String normalizedQuery = normalizeExploreSearchText(query);
+        if (normalizedQuery.isEmpty()) {
+            updateExploreSearchHeader("", loadedExploreBooks.size());
+            renderBookActionList(exploreAudiobooksContainer, loadedExploreBooks, getString(R.string.all_audiobooks_empty));
+            return;
+        }
+
+        List<BookSummary> filteredBooks = new ArrayList<>();
+        for (BookSummary book : loadedExploreBooks) {
+            if (matchesExploreSearch(book, normalizedQuery)) {
+                filteredBooks.add(book);
+            }
+        }
+        updateExploreSearchHeader(query, filteredBooks.size());
+        renderBookActionList(exploreAudiobooksContainer, filteredBooks, getString(R.string.search_no_results));
+    }
+
+    private boolean matchesExploreSearch(BookSummary book, String normalizedQuery) {
+        return normalizeExploreSearchText(book.title).contains(normalizedQuery)
+                || normalizeExploreSearchText(book.author).contains(normalizedQuery);
+    }
+
+    private String normalizeExploreSearchText(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.US);
+    }
+
+    private void updateExploreSearchHeader(String query, int resultCount) {
+        if (exploreResultsTitleView == null || exploreResultsCountView == null) {
+            return;
+        }
+        boolean hasQuery = !normalizeExploreSearchText(query).isEmpty();
+        exploreResultsTitleView.setText(hasQuery ? getString(R.string.search_results_title) : getString(R.string.all_audiobooks));
+        exploreResultsCountView.setVisibility(hasQuery ? View.VISIBLE : View.GONE);
+        if (hasQuery) {
+            exploreResultsCountView.setText(getString(R.string.explore_results_count, resultCount));
+        } else {
+            exploreResultsCountView.setText("");
+        }
+        if (exploreExtraSections != null) {
+            exploreExtraSections.setVisibility(hasQuery ? View.GONE : View.VISIBLE);
+        }
     }
 
     private void searchBooks() {
@@ -2009,19 +2085,6 @@ public class MainActivity extends AppCompatActivity {
         }
         showToast("Please login first");
         navigator.resetTo(Screen.LOGIN);
-    }
-
-    private String buildUserDocumentId(String email) {
-        String localPart = email;
-        int atIndex = email.indexOf('@');
-        if (atIndex > 0) {
-            localPart = email.substring(0, atIndex);
-        }
-        String normalized = localPart
-                .toLowerCase(Locale.US)
-                .replaceAll("[^a-z0-9]+", "_")
-                .replaceAll("^_+|_+$", "");
-        return TextUtils.isEmpty(normalized) ? "user" : normalized;
     }
 
     private void clearActiveAccount() {
