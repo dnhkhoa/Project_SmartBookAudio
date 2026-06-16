@@ -91,6 +91,7 @@
             </LinearLayout>
 
             <TextView
+                android:id="@+id/txtExploreResultsTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
@@ -99,51 +100,67 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
+            <TextView
+                android:id="@+id/txtExploreResultsCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_gray"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:id="@+id/allAudiobooksContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
-            <TextView
+            <LinearLayout
+                android:id="@+id/exploreExtraSections"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:text="@string/popular_topics"
-                android:textColor="@color/text_dark"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:orientation="vertical">
 
-            <GridLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:columnCount="2">
-                <include
-                    android:id="@+id/topicAi"
-                    layout="@layout/topic_ai" />
-                <include
-                    android:id="@+id/topicSkills"
-                    layout="@layout/topic_skills" />
-                <include
-                    android:id="@+id/topicData"
-                    layout="@layout/topic_data" />
-                <include
-                    android:id="@+id/topicLanguages"
-                    layout="@layout/topic_languages" />
-            </GridLayout>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="@string/popular_topics"
+                    android:textColor="@color/text_dark"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:text="@string/recommend_for_you"
-                android:textColor="@color/text_dark"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                <GridLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:columnCount="2">
+                    <include
+                        android:id="@+id/topicAi"
+                        layout="@layout/topic_ai" />
+                    <include
+                        android:id="@+id/topicSkills"
+                        layout="@layout/topic_skills" />
+                    <include
+                        android:id="@+id/topicData"
+                        layout="@layout/topic_data" />
+                    <include
+                        android:id="@+id/topicLanguages"
+                        layout="@layout/topic_languages" />
+                </GridLayout>
 
-            <include layout="@layout/recommend_clean_code" />
-            <include layout="@layout/recommend_deep_work" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="@string/recommend_for_you"
+                    android:textColor="@color/text_dark"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <include layout="@layout/recommend_clean_code" />
+                <include layout="@layout/recommend_deep_work" />
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 
